@@ -19,7 +19,6 @@ import {
   HeartHandshake,
   Users,
   Github,
-  HeartHandshake,
   House,
   LayoutGrid,
   Library,
