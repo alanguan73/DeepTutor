@@ -14,6 +14,7 @@ import {
   GraduationCap,
   Ear,
   Eye,
+  FlaskConical,
   Users,
   Github,
   HeartHandshake,
@@ -104,6 +105,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Observe",
     icon: Eye,
     tooltipKey: "Observe tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/distill",
+    label: "Distill",
+    icon: FlaskConical,
+    tooltipKey: "Distill tooltip",
     requires: "llm",
   },
   {
