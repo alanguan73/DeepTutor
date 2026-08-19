@@ -90,6 +90,7 @@ export default function SimPage() {
         text,
         stage,
         source: event.source || undefined,
+        metadata: event.metadata || undefined,
       },
     ]);
     if (looksLikeSimEnded(text, stage)) setClosed(true);

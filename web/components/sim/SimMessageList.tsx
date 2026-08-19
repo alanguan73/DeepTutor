@@ -1,6 +1,10 @@
 "use client";
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
+import {
+  parseSimRecommendation,
+  type SimRecommendation,
+} from "@/lib/sim-recommend";
 
 export type SimMessage = {
   id: string;
@@ -8,6 +12,7 @@ export type SimMessage = {
   text: string;
   stage?: string;
   source?: string;
+  metadata?: Record<string, unknown>;
 };
 
 function bubbleClass(msg: SimMessage): string {
@@ -20,6 +25,9 @@ function bubbleClass(msg: SimMessage): string {
   if (msg.stage === "debrief") {
     return "mr-auto border border-violet-500/40 bg-violet-500/10 text-[var(--foreground)]";
   }
+  if (msg.stage === "recommend") {
+    return "mr-auto border border-emerald-500/40 bg-emerald-500/10 text-[var(--foreground)]";
+  }
   if (msg.role === "system") {
     return "mx-auto border border-dashed border-[var(--border)] bg-[var(--background)]/60 text-[var(--muted-foreground)]";
   }
@@ -27,7 +35,40 @@ function bubbleClass(msg: SimMessage): string {
 }
 
 function useMarkdown(msg: SimMessage): boolean {
+  if (msg.stage === "recommend") return false;
   return msg.role !== "user" && msg.role !== "system";
+}
+
+function RecommendCard({ rec, fallback }: { rec: SimRecommendation; fallback: string }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-[var(--foreground)]">Next</div>
+      <div className="mt-1 font-mono text-[11px] text-[var(--muted-foreground)]">
+        {rec.kind} · {rec.targetId}
+      </div>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+        {rec.reason || fallback}
+      </p>
+    </div>
+  );
+}
+
+function MessageBody({ msg }: { msg: SimMessage }) {
+  if (msg.stage === "recommend") {
+    const rec = parseSimRecommendation(msg.metadata);
+    if (rec) return <RecommendCard rec={rec} fallback={msg.text} />;
+    return <>{msg.text}</>;
+  }
+  if (useMarkdown(msg)) {
+    return (
+      <MarkdownRenderer
+        content={msg.text}
+        variant="compact"
+        className="text-sm leading-6"
+      />
+    );
+  }
+  return <>{msg.text}</>;
 }
 
 export default function SimMessageList({ messages }: { messages: SimMessage[] }) {
@@ -73,15 +114,7 @@ export default function SimMessageList({ messages }: { messages: SimMessage[] })
                 {msg.stage}
               </div>
             )}
-            {useMarkdown(msg) ? (
-              <MarkdownRenderer
-                content={msg.text}
-                variant="compact"
-                className="text-sm leading-6"
-              />
-            ) : (
-              msg.text
-            )}
+            <MessageBody msg={msg} />
           </div>
         </div>
       ))}
