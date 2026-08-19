@@ -40,6 +40,7 @@ import { ChatMessageList } from "@/components/chat/home/ChatMessages";
 import { TurnNavigator } from "@/components/chat/home/TurnNavigator";
 import SessionLoadingView from "@/components/chat/home/SessionLoadingView";
 import StarterSuggestions from "@/components/chat/home/StarterSuggestions";
+import PsychAcademyShortcuts from "@/components/chat/home/PsychAcademyShortcuts";
 import MasteryPathStrip from "@/components/chat/home/MasteryPathStrip";
 // Imported eagerly so the drawer shell is always mounted off-screen —
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
@@ -74,7 +75,10 @@ import {
   readFileAsDataUrl,
 } from "@/lib/file-attachments";
 import { classifyFile, isSvgFilename } from "@/lib/doc-attachments";
-import { readChatLaunchIntent } from "@/lib/chat-launch-intent";
+import {
+  readChatLaunchIntent,
+  resolvePsychAcademyLaunchRedirect,
+} from "@/lib/chat-launch-intent";
 import { useAttachmentLimits } from "@/lib/attachment-limits";
 import { useChatAutoScroll } from "@/hooks/useChatAutoScroll";
 import { useMeasuredHeight } from "@/hooks/useMeasuredHeight";
@@ -1230,6 +1234,11 @@ export default function ChatPage() {
      from here on the composer is the user's to change. */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const redirect = resolvePsychAcademyLaunchRedirect(window.location.search);
+    if (redirect) {
+      router.replace(redirect);
+      return;
+    }
     const intent = readChatLaunchIntent(window.location.search);
     if (intent.masteryPathId) setMasteryPathId(intent.masteryPathId);
     if (intent.capability !== null) handleSelectCapability(intent.capability);
@@ -2281,10 +2290,13 @@ export default function ChatPage() {
                 session when it has no messages, so that both creates the
                 session and starts it on the topic. */}
               {!hasMessages ? (
-                <StarterSuggestions
-                  onPick={(prompt) => void handleSend(prompt)}
-                  disabled={state.isStreaming}
-                />
+                <>
+                  <PsychAcademyShortcuts />
+                  <StarterSuggestions
+                    onPick={(prompt) => void handleSend(prompt)}
+                    disabled={state.isStreaming}
+                  />
+                </>
               ) : null}
               <div
                 aria-hidden="true"

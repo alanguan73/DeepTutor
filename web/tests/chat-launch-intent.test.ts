@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 
 import {
   newMasteryPathChatUrl,
+  newPsychAcademyCapabilityHomeUrl,
   newPsychSkillTrainUrl,
   readChatLaunchIntent,
+  resolvePsychAcademyLaunchRedirect,
 } from "../lib/chat-launch-intent";
 
 test("continuing a mastery path opens a fresh associated chat", () => {
@@ -55,4 +57,18 @@ test("a blank mastery path id is dropped rather than bound", () => {
     masteryPathId: null,
     message: null,
   });
+});
+
+test("psych academy capability home URLs redirect to dedicated pages", () => {
+  const counselHome = newPsychAcademyCapabilityHomeUrl("counsel");
+  assert.equal(counselHome, "/home?capability=counsel");
+  assert.equal(
+    resolvePsychAcademyLaunchRedirect(counselHome.slice(counselHome.indexOf("?"))),
+    "/counsel",
+  );
+  const simHome = newPsychAcademyCapabilityHomeUrl("counsel_sim");
+  assert.equal(
+    resolvePsychAcademyLaunchRedirect(simHome.slice(simHome.indexOf("?"))),
+    "/sim",
+  );
 });
