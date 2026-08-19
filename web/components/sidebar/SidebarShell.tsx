@@ -13,6 +13,7 @@ import {
   ChevronDown,
   GraduationCap,
   Ear,
+  Dumbbell,
   Eye,
   FlaskConical,
   Users,
@@ -112,6 +113,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Distill",
     icon: FlaskConical,
     tooltipKey: "Distill tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/train",
+    label: "Train",
+    icon: Dumbbell,
+    tooltipKey: "Train tooltip",
     requires: "llm",
   },
   {

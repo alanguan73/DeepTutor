@@ -1226,8 +1226,8 @@ export default function ChatPage() {
   }, []);
 
   /* Composer setup requested by the URL that opened this page (capability,
-     tools, persistent mastery path). Runs once: from here on the composer is
-     the user's to change. */
+     tools, persistent mastery path, optional message prefill). Runs once:
+     from here on the composer is the user's to change. */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const intent = readChatLaunchIntent(window.location.search);
@@ -1239,6 +1239,25 @@ export default function ChatPage() {
       );
       if (valid.length) setTools(Array.from(new Set(valid)));
     }
+    const prefill = intent.message;
+    if (!prefill) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      if (cancelled) return;
+      if (!prefillInputRef.current) return;
+      prefillInputRef.current(prefill);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("message");
+      const next = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, "", next);
+      window.clearInterval(timer);
+    }, 50);
+    const giveUp = window.setTimeout(() => window.clearInterval(timer), 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.clearTimeout(giveUp);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

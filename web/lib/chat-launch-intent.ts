@@ -19,12 +19,15 @@ export interface ChatLaunchIntent {
   tools: string[];
   /** Persistent mastery path this conversation should operate on. */
   masteryPathId: string | null;
+  /** Optional composer prefill (e.g. Train → Mastery Path). */
+  message: string | null;
 }
 
 const EMPTY_INTENT: ChatLaunchIntent = {
   capability: null,
   tools: [],
   masteryPathId: null,
+  message: null,
 };
 
 /** Read the launch intent out of a `location.search` string. */
@@ -36,6 +39,7 @@ export function readChatLaunchIntent(search: string): ChatLaunchIntent {
     capability: capability === null ? null : capability.trim(),
     tools: params.getAll("tool").map((tool) => tool.trim()),
     masteryPathId: params.get("mastery_path_id")?.trim() || null,
+    message: params.get("message")?.trim() || null,
   };
 }
 
@@ -44,6 +48,19 @@ export function newMasteryPathChatUrl(masteryPathId: string): string {
   const params = new URLSearchParams({
     capability: "mastery_path",
     mastery_path_id: masteryPathId,
+  });
+  return `/home?${params.toString()}`;
+}
+
+/** Open Guided Learning with a Train prefill for a psych counseling skill. */
+export function newPsychSkillTrainUrl(skillName: string): string {
+  const name = skillName.trim();
+  const message =
+    `Teach me the counseling skill "${name}". ` +
+    "Call read_skill for that skill first, then build a mastery path from it.";
+  const params = new URLSearchParams({
+    capability: "mastery_path",
+    message,
   });
   return `/home?${params.toString()}`;
 }
