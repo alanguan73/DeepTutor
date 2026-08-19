@@ -23,5 +23,10 @@ export default defineConfig({
       testMatch: "**/*.audit.ts",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "counsel-smoke",
+      testMatch: "**/counsel.smoke.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });
