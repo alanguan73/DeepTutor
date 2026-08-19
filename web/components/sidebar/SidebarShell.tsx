@@ -28,6 +28,7 @@ import {
   PanelLeftOpen,
   PenLine,
   Settings,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -135,6 +136,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Train",
     icon: Dumbbell,
     tooltipKey: "Train tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/psych",
+    label: "Psych",
+    icon: Activity,
+    tooltipKey: "Psych tooltip",
     requires: "llm",
   },
   {

@@ -1868,6 +1868,8 @@
   "Distill tooltip": "把咨询方法论摘录蒸馏成技能。",
   "Train": "训练",
   "Train tooltip": "从心理咨询技能启动 Guided Learning。",
+  "Psych": "心理看板",
+  "Psych tooltip": "只读学员看板：情绪时间线、未完成任务与近期会话。",
   "Psych Academy": "心理学院",
   "Book tooltip": "生成交互式 AI 书籍。",
   "Knowledge tooltip": "管理文档与教学人设。",

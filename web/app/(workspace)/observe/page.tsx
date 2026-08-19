@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Eye, Loader2 } from "lucide-react";
 import ObserveComposer from "@/components/observe/ObserveComposer";
 import ObserveMessageList, {
@@ -20,6 +21,7 @@ function newMessageId(): string {
 }
 
 export default function ObservePage() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<ObserveMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
@@ -35,6 +37,13 @@ export default function ObservePage() {
   useEffect(() => {
     sessionRef.current = dtSessionId;
   }, [dtSessionId]);
+
+  useEffect(() => {
+    const counselId = searchParams.get("counsel_id")?.trim();
+    if (counselId) {
+      setDraft(counselId);
+    }
+  }, [searchParams]);
 
   const handleEvent = useCallback((event: StreamEvent) => {
     if (event.type === "session" || event.type === "session_meta") {

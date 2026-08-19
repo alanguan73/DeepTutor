@@ -1749,6 +1749,8 @@
   "Distill tooltip": "Turn counseling methodology into skills.",
   "Train": "Train",
   "Train tooltip": "Start Guided Learning from a psych counseling skill.",
+  "Psych": "Psych",
+  "Psych tooltip": "Read-only trainee dashboard: emotion timeline, open plans, and recent sessions.",
   "Psych Academy": "Psych Academy",
   "Book tooltip": "Create AI-powered books.",
   "Knowledge tooltip": "Manage learning personas.",
