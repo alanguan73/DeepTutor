@@ -11,6 +11,7 @@ import {
   Bot,
   Brain,
   ChevronDown,
+  GraduationCap,
   Ear,
   Github,
   HeartHandshake,
@@ -80,6 +81,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Whisper",
     icon: Ear,
     tooltipKey: "Whisper tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/sim",
+    label: "Sim",
+    icon: GraduationCap,
+    tooltipKey: "Sim tooltip",
     requires: "llm",
   },
   {
