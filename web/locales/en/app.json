@@ -1739,6 +1739,8 @@
   "Sim tooltip": "Counseling simulation: you are the trainee counselor.",
   "Dual": "Dual",
   "Dual tooltip": "Watch an AI counselor and visitor with supervisor notes.",
+  "Observe": "Observe",
+  "Observe tooltip": "Debrief a closed visitor counsel session.",
   "Book tooltip": "Create AI-powered books.",
   "Knowledge tooltip": "Manage learning personas.",
   "Space tooltip": "Your personal learning library.",

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   GraduationCap,
   Ear,
+  Eye,
   Users,
   Github,
   HeartHandshake,
@@ -96,6 +97,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Dual",
     icon: Users,
     tooltipKey: "Dual tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/observe",
+    label: "Observe",
+    icon: Eye,
+    tooltipKey: "Observe tooltip",
     requires: "llm",
   },
   {
