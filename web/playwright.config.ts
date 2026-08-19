@@ -38,5 +38,10 @@ export default defineConfig({
       testMatch: "**/psych.smoke.ts",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "academy-pages-smoke",
+      testMatch: "**/academy-pages.smoke.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });
