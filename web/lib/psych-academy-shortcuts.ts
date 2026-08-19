@@ -6,13 +6,19 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  ClipboardList,
   Dumbbell,
   FlaskConical,
   GraduationCap,
   HeartHandshake,
 } from "lucide-react";
 
-export type PsychAcademySurface = "counsel" | "sim" | "distill" | "train";
+export type PsychAcademySurface =
+  | "counsel"
+  | "sim"
+  | "distill"
+  | "train"
+  | "intake";
 
 export type PsychAcademyShortcut = {
   id: PsychAcademySurface;
@@ -57,6 +63,13 @@ export const PSYCH_ACADEMY_SHORTCUTS: PsychAcademyShortcut[] = [
     labelKey: "Train",
     tooltipKey: "Train tooltip",
     icon: Dumbbell,
+  },
+  {
+    id: "intake",
+    href: "/intake",
+    labelKey: "Intake",
+    tooltipKey: "Intake tooltip",
+    icon: ClipboardList,
   },
 ];
 

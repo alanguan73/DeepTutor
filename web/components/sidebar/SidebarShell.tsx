@@ -11,6 +11,7 @@ import {
   Bot,
   Brain,
   ChevronDown,
+  ClipboardList,
   GraduationCap,
   Ear,
   Dumbbell,
@@ -85,6 +86,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Whisper",
     icon: Ear,
     tooltipKey: "Whisper tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/intake",
+    label: "Intake",
+    icon: ClipboardList,
+    tooltipKey: "Intake tooltip",
     requires: "llm",
   },
   {

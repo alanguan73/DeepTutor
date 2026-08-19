@@ -1854,6 +1854,8 @@
   "Co-Writer tooltip": "AI 驱动的协作文档编辑器。",
   "Whisper": "密语",
   "Whisper tooltip": "访客与学员双席位密语房间。",
+  "Intake": "接案督导",
+  "Intake tooltip": "接案现场督导：访客、学员咨询师与只读督导三席位。",
   "Counsel": "咨询",
   "Counsel tooltip": "来访者端咨询（Phase 2）。",
   "Sim": "演练",

@@ -20,9 +20,9 @@ test("psychAcademyPageHref returns dedicated routes", () => {
   assert.equal(psychAcademyPageHref("counsel"), "/counsel");
 });
 
-test("PSYCH_ACADEMY_SHORTCUTS lists four academy surfaces", () => {
+test("PSYCH_ACADEMY_SHORTCUTS lists five academy surfaces", () => {
   assert.deepEqual(
     PSYCH_ACADEMY_SHORTCUTS.map((s) => s.id),
-    ["counsel", "sim", "distill", "train"],
+    ["counsel", "sim", "distill", "train", "intake"],
   );
 });
