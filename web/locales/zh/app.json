@@ -1856,6 +1856,8 @@
   "Whisper tooltip": "访客与学员双席位密语房间。",
   "Sim": "演练",
   "Sim tooltip": "咨询演练：你是学员咨询师。",
+  "Dual": "双通道",
+  "Dual tooltip": "旁观 AI 咨询师与来访者，并阅读督导评语。",
   "Book tooltip": "生成交互式 AI 书籍。",
   "Knowledge tooltip": "管理文档与教学人设。",
   "Space tooltip": "你的个人学习空间。",

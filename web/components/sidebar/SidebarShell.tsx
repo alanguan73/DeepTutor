@@ -13,6 +13,7 @@ import {
   ChevronDown,
   GraduationCap,
   Ear,
+  Users,
   Github,
   HeartHandshake,
   House,
@@ -88,6 +89,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Sim",
     icon: GraduationCap,
     tooltipKey: "Sim tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/dual",
+    label: "Dual",
+    icon: Users,
+    tooltipKey: "Dual tooltip",
     requires: "llm",
   },
   {
