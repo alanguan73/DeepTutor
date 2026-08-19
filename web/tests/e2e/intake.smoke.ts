@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+test.describe.configure({ mode: "serial" });
+
 /**
  * Live smoke for /intake — requires psych-academy serve + Next dev.
  * Skip when SKIP_LIVE_SMOKE=1 or the page never connects.
@@ -76,20 +78,25 @@ test.describe("Intake :: static", () => {
   test("page loads intake shell with three seats", async ({ page }) => {
     await page.goto("/intake", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Intake", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Live intake supervision")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "visitor" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "trainee" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "supervisor" })).toBeVisible();
+    await expect(
+      page.getByText(/Live intake supervision · visitor, trainee counselor, supervisor/i),
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: /visitor/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /trainee/i })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /supervisor/i })).toBeVisible();
   });
 
   test("supervisor seat is read-only", async ({ page }) => {
     await page.goto("/intake", { waitUntil: "domcontentloaded" });
-    await page.getByRole("tab", { name: "supervisor" }).click();
+    await expect(page.getByRole("tablist", { name: "Seat" })).toBeVisible({
+      timeout: 15_000,
+    });
+    const supervisorTab = page.getByRole("tab", { name: /supervisor/i });
+    await supervisorTab.click();
+    await expect(supervisorTab).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByText(/Supervisor seat is read-only/i),
     ).toBeVisible();
-    await expect(
-      page.getByRole("textbox", { name: "Visitor message" }),
-    ).toHaveCount(0);
+    await expect(page.getByRole("textbox")).toHaveCount(0);
   });
 });
