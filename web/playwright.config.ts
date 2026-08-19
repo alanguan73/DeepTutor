@@ -33,5 +33,10 @@ export default defineConfig({
       testMatch: "**/intake.smoke.ts",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "psych-smoke",
+      testMatch: "**/psych.smoke.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });
