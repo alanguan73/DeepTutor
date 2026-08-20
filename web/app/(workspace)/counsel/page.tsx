@@ -306,6 +306,11 @@ export default function CounselPage() {
     if (!turnId || busy || roomLocked) return;
     setBusy(true);
     setPendingAskUser(null);
+    const busyWatchdog = setTimeout(() => {
+      retryTimersRef.current.delete(busyWatchdog);
+      setBusy(false);
+    }, 180_000);
+    retryTimersRef.current.add(busyWatchdog);
     sendWithRetry({
       type: "submit_user_reply",
       turn_id: turnId,
