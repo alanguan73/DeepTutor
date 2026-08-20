@@ -1858,6 +1858,8 @@
   "Intake tooltip": "接案现场督导：访客、学员咨询师与只读督导三席位。",
   "Counsel": "咨询",
   "Counsel tooltip": "来访者端咨询（Phase 2）。",
+  "Companion": "陪聊",
+  "Companion tooltip": "长程陪聊：可打断、可选辅导进度。",
   "Sim": "演练",
   "Sim tooltip": "咨询演练：你是学员咨询师。",
   "Dual": "双通道",

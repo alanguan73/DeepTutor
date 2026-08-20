@@ -1739,6 +1739,8 @@
   "Intake tooltip": "Live intake supervision with visitor, trainee counselor, and read-only supervisor seats.",
   "Counsel": "Counsel",
   "Counsel tooltip": "Visitor-facing counseling (Phase 2).",
+  "Companion": "Companion",
+  "Companion tooltip": "Long-term companion chat with optional progress and interrupt.",
   "Sim": "Sim",
   "Sim tooltip": "Counseling simulation: you are the trainee counselor.",
   "Dual": "Dual",

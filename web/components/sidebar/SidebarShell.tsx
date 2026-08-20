@@ -17,6 +17,7 @@ import {
   Dumbbell,
   Eye,
   FlaskConical,
+  Heart,
   HeartHandshake,
   Users,
   Github,
@@ -101,6 +102,13 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Counsel",
     icon: HeartHandshake,
     tooltipKey: "Counsel tooltip",
+    requires: "llm",
+  },
+  {
+    href: "/companion",
+    label: "Companion",
+    icon: Heart,
+    tooltipKey: "Companion tooltip",
     requires: "llm",
   },
   {

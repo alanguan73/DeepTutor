@@ -10,11 +10,13 @@ import {
   Dumbbell,
   FlaskConical,
   GraduationCap,
+  Heart,
   HeartHandshake,
 } from "lucide-react";
 
 export type PsychAcademySurface =
   | "counsel"
+  | "companion"
   | "sim"
   | "distill"
   | "train"
@@ -31,6 +33,7 @@ export type PsychAcademyShortcut = {
 /** Capability values that should open a dedicated academy page instead of Home chat. */
 const DEDICATED_CAPABILITY_ROUTES: Record<string, string> = {
   counsel: "/counsel",
+  companion: "/companion",
   counsel_sim: "/sim",
   distill: "/distill",
 };
@@ -42,6 +45,13 @@ export const PSYCH_ACADEMY_SHORTCUTS: PsychAcademyShortcut[] = [
     labelKey: "Counsel",
     tooltipKey: "Counsel tooltip",
     icon: HeartHandshake,
+  },
+  {
+    id: "companion",
+    href: "/companion",
+    labelKey: "Companion",
+    tooltipKey: "Companion tooltip",
+    icon: Heart,
   },
   {
     id: "sim",
