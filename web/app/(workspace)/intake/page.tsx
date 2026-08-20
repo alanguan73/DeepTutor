@@ -206,7 +206,7 @@ export default function IntakePage() {
 
   function startTurn(content: string, options?: { hideOptimistic?: boolean }) {
     const text = content.trim();
-    if (!text || sendBlocked || seat === "supervisor") return;
+    if (!text || sendBlocked) return;
 
     if (!options?.hideOptimistic) {
       setMessages((prev) => [

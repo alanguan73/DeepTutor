@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, Loader2 } from "lucide-react";
 import ObserveComposer from "@/components/observe/ObserveComposer";
@@ -21,6 +21,21 @@ function newMessageId(): string {
 }
 
 export default function ObservePage() {
+  // useSearchParams requires Suspense during static prerender (same as /book).
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full w-full items-center justify-center text-[var(--muted-foreground)]">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+        </div>
+      }
+    >
+      <ObservePageInner />
+    </Suspense>
+  );
+}
+
+function ObservePageInner() {
   const searchParams = useSearchParams();
   const [messages, setMessages] = useState<ObserveMessage[]>([]);
   const [busy, setBusy] = useState(false);
