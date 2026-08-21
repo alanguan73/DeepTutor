@@ -205,21 +205,27 @@ export default function CompanionPage() {
       }
 
       if (event.type === "done") {
-        const full = lastAssistantTextRef.current;
-        if (full && !crisisHitRef.current) {
-          void voiceRef.current?.speakAssistant(full);
+        const card = extractAskUserPayload(turnEventsRef.current);
+        const askPending = Boolean(card && !card.resolved);
+        // Do not TTS over an unresolved ask_user card.
+        if (!askPending) {
+          const full = lastAssistantTextRef.current;
+          if (full && !crisisHitRef.current) {
+            void voiceRef.current?.speakAssistant(full);
+          }
         }
         assistantBufferRef.current = null;
-        const card = extractAskUserPayload(turnEventsRef.current);
-        if (card && !card.resolved) {
+        if (askPending && card) {
           setPendingAskUser(card.payload);
           setBusy(false);
           busyRef.current = false;
-        } else {
-          setPendingAskUser(null);
-          setBusy(false);
-          busyRef.current = false;
+          // Keep turn_id — submit_user_reply needs it (same as /counsel).
+          setConnected(true);
+          return;
         }
+        setPendingAskUser(null);
+        setBusy(false);
+        busyRef.current = false;
         setConnected(true);
         setActiveTurnId(null);
         turnIdRef.current = null;
@@ -524,7 +530,11 @@ export default function CompanionPage() {
 
   function submitAskUser(answers: Array<{ questionId: string; text: string }>) {
     const turnId = turnIdRef.current;
-    if (!turnId || busy || roomLocked) return;
+    // Allow submit while the card is shown (busy is false after ask_user pause).
+    // Reject only when already sending a reply or room is locked.
+    if (!turnId || roomLocked) return;
+    if (busyRef.current && !pendingAskUser) return;
+    voiceRef.current?.flushAudio();
     busyRef.current = true;
     setBusy(true);
     setPendingAskUser(null);
