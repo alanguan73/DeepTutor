@@ -1860,6 +1860,8 @@
   "Counsel tooltip": "来访者端咨询（Phase 2）。",
   "Companion": "陪聊",
   "Companion tooltip": "长程陪聊：可打断、可选辅导进度。",
+  "Companion hold to talk": "按住说话",
+  "Companion release to send": "松开发送",
   "Sim": "演练",
   "Sim tooltip": "咨询演练：你是学员咨询师。",
   "Dual": "双通道",

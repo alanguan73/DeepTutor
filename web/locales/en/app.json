@@ -1741,6 +1741,8 @@
   "Counsel tooltip": "Visitor-facing counseling (Phase 2).",
   "Companion": "Companion",
   "Companion tooltip": "Long-term companion chat with optional progress and interrupt.",
+  "Companion hold to talk": "Hold to talk",
+  "Companion release to send": "Release to send",
   "Sim": "Sim",
   "Sim tooltip": "Counseling simulation: you are the trainee counselor.",
   "Dual": "Dual",

@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Loader2, Send, Square } from "lucide-react";
 import { shouldSubmitOnEnter } from "@/lib/composer-keyboard";
 import { useImeComposing } from "@/lib/use-ime-composing";
@@ -11,6 +11,7 @@ type CompanionComposerProps = {
   sendDisabled: boolean;
   inputDisabled: boolean;
   interruptEnabled: boolean;
+  voiceSlot?: ReactNode;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onInterrupt: () => void;
@@ -22,6 +23,7 @@ export default function CompanionComposer({
   sendDisabled,
   inputDisabled,
   interruptEnabled,
+  voiceSlot,
   onDraftChange,
   onSend,
   onInterrupt,
@@ -56,6 +58,7 @@ export default function CompanionComposer({
               Waiting…
             </p>
           )}
+          {voiceSlot}
           <button
             type="button"
             onClick={onInterrupt}
