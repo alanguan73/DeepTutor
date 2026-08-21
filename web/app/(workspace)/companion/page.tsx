@@ -9,6 +9,7 @@ import CompanionMessageList, {
 import CompanionProgressPanel, {
   type CompanionProgress,
 } from "@/components/companion/CompanionProgressPanel";
+import CompanionVoiceBar from "@/components/companion/CompanionVoiceBar";
 import {
   extractAskUserPayload,
   type AskUserPayload,
@@ -17,6 +18,11 @@ import CounselAskUserCard from "@/components/counsel/CounselAskUserCard";
 import { hasPendingAskUser } from "@/lib/ask-user-state";
 import { looksLikeCrisisRedirect } from "@/lib/counsel-transcript";
 import { apiFetch, apiUrl } from "@/lib/api";
+import { CompanionVoiceController } from "@/lib/companion-voice";
+import {
+  companionTranscribe,
+  companionSynthesizeAndPlay,
+} from "@/lib/companion-voice-http";
 import {
   UnifiedWSClient,
   type StartTurnMessage,
@@ -100,6 +106,7 @@ export default function CompanionPage() {
   const [pendingAskUser, setPendingAskUser] = useState<AskUserPayload | null>(
     null,
   );
+  const [recording, setRecording] = useState(false);
 
   const clientRef = useRef<UnifiedWSClient | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -109,6 +116,15 @@ export default function CompanionPage() {
   const retryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const progressUiRef = useRef(false);
+  const busyRef = useRef(false);
+  const crisisHitRef = useRef(false);
+  const lastAssistantTextRef = useRef("");
+  const voiceRef = useRef<CompanionVoiceController | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const holdActiveRef = useRef(false);
+  const startTurnWithTextRef = useRef<(text: string) => void>(() => {});
+  const handleInterruptRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     sessionRef.current = dtSessionId;
@@ -122,6 +138,14 @@ export default function CompanionPage() {
     progressUiRef.current = progressUiOn;
   }, [progressUiOn]);
 
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  useEffect(() => {
+    crisisHitRef.current = crisisHit;
+  }, [crisisHit]);
+
   const appendAssistantContent = useCallback((text: string, stage: string) => {
     const normalized = stage || "responding";
     if (
@@ -129,6 +153,7 @@ export default function CompanionPage() {
       assistantBufferRef.current.stage === normalized
     ) {
       const targetId = assistantBufferRef.current.id;
+      lastAssistantTextRef.current += text;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === targetId
@@ -140,6 +165,7 @@ export default function CompanionPage() {
     }
     const id = newMessageId();
     assistantBufferRef.current = { id, stage: normalized };
+    lastAssistantTextRef.current = text;
     setMessages((prev) => [
       ...prev,
       { id, role: "assistant", text, stage: normalized },
@@ -179,14 +205,20 @@ export default function CompanionPage() {
       }
 
       if (event.type === "done") {
+        const full = lastAssistantTextRef.current;
+        if (full && !crisisHitRef.current) {
+          void voiceRef.current?.speakAssistant(full);
+        }
         assistantBufferRef.current = null;
         const card = extractAskUserPayload(turnEventsRef.current);
         if (card && !card.resolved) {
           setPendingAskUser(card.payload);
           setBusy(false);
+          busyRef.current = false;
         } else {
           setPendingAskUser(null);
           setBusy(false);
+          busyRef.current = false;
         }
         setConnected(true);
         setActiveTurnId(null);
@@ -205,6 +237,7 @@ export default function CompanionPage() {
           },
         ]);
         setBusy(false);
+        busyRef.current = false;
         setPendingAskUser(null);
         setActiveTurnId(null);
         turnIdRef.current = null;
@@ -244,6 +277,7 @@ export default function CompanionPage() {
       appendAssistantContent(text, stage);
 
       if (looksLikeCrisisRedirect(text)) {
+        crisisHitRef.current = true;
         setCrisisHit(true);
         setPendingAskUser(null);
       }
@@ -254,6 +288,7 @@ export default function CompanionPage() {
   useEffect(() => {
     const client = new UnifiedWSClient(handleEvent, () => {
       setBusy(false);
+      busyRef.current = false;
       setConnected(false);
     });
     clientRef.current = client;
@@ -279,6 +314,23 @@ export default function CompanionPage() {
       clientRef.current = null;
     };
   }, [handleEvent]);
+
+  useEffect(() => {
+    voiceRef.current = new CompanionVoiceController({
+      stopTts: () => {
+        // synthesizeAndPlay pauses via AbortSignal; no shared audio element.
+      },
+      cancelTurn: () => handleInterruptRef.current(),
+      startTurn: (text) => startTurnWithTextRef.current(text),
+      transcribe: companionTranscribe,
+      synthesizeAndPlay: companionSynthesizeAndPlay,
+      now: () => Date.now(),
+    });
+    return () => {
+      voiceRef.current?.flushAudio();
+      voiceRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (scrollerRef.current) {
@@ -315,6 +367,7 @@ export default function CompanionPage() {
     }
     if (attempt >= 10) {
       setBusy(false);
+      busyRef.current = false;
       setMessages((prev) => [
         ...prev,
         {
@@ -355,39 +408,47 @@ export default function CompanionPage() {
   }
 
   function handleInterrupt() {
+    voiceRef.current?.flushAudio();
     const turnId = turnIdRef.current;
-    if (!turnId || !busy) return;
+    if (!turnId || !busyRef.current) return;
     sendWithRetry({ type: "cancel_turn", turn_id: turnId });
     assistantBufferRef.current = null;
+    busyRef.current = false;
     setBusy(false);
     setActiveTurnId(null);
     turnIdRef.current = null;
     setPendingAskUser(null);
   }
 
-  function startTurn() {
-    const text = draft.trim();
-    if (!text || sendBlocked) return;
+  function startTurnWithText(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || roomLocked || crisisHitRef.current) return;
+    // busyRef is cleared synchronously in handleInterrupt so barge-in can
+    // start a new turn in the same stack after cancelTurn.
+    if (busyRef.current) return;
 
     turnEventsRef.current = [];
     assistantBufferRef.current = null;
+    lastAssistantTextRef.current = "";
     setPendingAskUser(null);
 
     setMessages((prev) => [
       ...prev,
-      { id: newMessageId(), role: "user", text },
+      { id: newMessageId(), role: "user", text: trimmed },
     ]);
     setDraft("");
+    busyRef.current = true;
     setBusy(true);
     const busyWatchdog = setTimeout(() => {
       retryTimersRef.current.delete(busyWatchdog);
+      busyRef.current = false;
       setBusy(false);
     }, 180_000);
     retryTimersRef.current.add(busyWatchdog);
 
     sendWithRetry({
       type: "start_turn",
-      content: text,
+      content: trimmed,
       capability: "companion",
       session_id: sessionRef.current ?? undefined,
       language: "zh",
@@ -395,13 +456,78 @@ export default function CompanionPage() {
     });
   }
 
+  startTurnWithTextRef.current = startTurnWithText;
+  handleInterruptRef.current = handleInterrupt;
+
+  function onSend() {
+    const text = draft.trim();
+    if (!text || sendBlocked) return;
+    startTurnWithText(text);
+  }
+
+  async function onHoldStart() {
+    if (sendBlocked || recording || holdActiveRef.current) return;
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      return;
+    }
+    holdActiveRef.current = true;
+    // Spec: speech start → barge-in stop current turn/TTS (before mic grant)
+    voiceRef.current?.flushAudio();
+    handleInterrupt();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      holdActiveRef.current = false;
+      return;
+    }
+    if (!holdActiveRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const rec = new MediaRecorder(stream);
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size) chunksRef.current.push(e.data);
+    };
+    mediaRecorderRef.current = rec;
+    rec.start();
+    setRecording(true);
+  }
+
+  async function onHoldEnd() {
+    holdActiveRef.current = false;
+    const rec = mediaRecorderRef.current;
+    if (!rec) return;
+    setRecording(false);
+    mediaRecorderRef.current = null;
+    await new Promise<void>((resolve) => {
+      rec.onstop = () => resolve();
+      if (rec.state !== "inactive") {
+        rec.stop();
+      } else {
+        resolve();
+      }
+      rec.stream.getTracks().forEach((t) => t.stop());
+    });
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    chunksRef.current = [];
+    await voiceRef.current?.commitRecording(blob);
+  }
+
   function submitAskUser(answers: Array<{ questionId: string; text: string }>) {
     const turnId = turnIdRef.current;
     if (!turnId || busy || roomLocked) return;
+    busyRef.current = true;
     setBusy(true);
     setPendingAskUser(null);
     const busyWatchdog = setTimeout(() => {
       retryTimersRef.current.delete(busyWatchdog);
+      busyRef.current = false;
       setBusy(false);
     }, 180_000);
     retryTimersRef.current.add(busyWatchdog);
@@ -413,12 +539,16 @@ export default function CompanionPage() {
   }
 
   function handleNewSession() {
+    voiceRef.current?.flushAudio();
     retryTimersRef.current.forEach((timer) => clearTimeout(timer));
     retryTimersRef.current.clear();
     sessionRef.current = null;
     turnIdRef.current = null;
     turnEventsRef.current = [];
     assistantBufferRef.current = null;
+    lastAssistantTextRef.current = "";
+    busyRef.current = false;
+    crisisHitRef.current = false;
     setMessages([]);
     setDraft("");
     setBusy(false);
@@ -427,9 +557,12 @@ export default function CompanionPage() {
     setCrisisHit(false);
     setProgress(null);
     setPendingAskUser(null);
+    holdActiveRef.current = false;
+    setRecording(false);
   }
 
   const canNewSession = Boolean(dtSessionId || messages.length > 0 || crisisHit);
+  const voiceDisabled = (sendBlocked || roomLocked) && !recording;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -519,8 +652,20 @@ export default function CompanionPage() {
         sendDisabled={sendBlocked}
         inputDisabled={roomLocked}
         interruptEnabled={busy && Boolean(activeTurnId) && !roomLocked}
+        voiceSlot={
+          <CompanionVoiceBar
+            recording={recording}
+            disabled={voiceDisabled}
+            onHoldStart={() => {
+              void onHoldStart();
+            }}
+            onHoldEnd={() => {
+              void onHoldEnd();
+            }}
+          />
+        }
         onDraftChange={setDraft}
-        onSend={startTurn}
+        onSend={onSend}
         onInterrupt={handleInterrupt}
       />
     </div>
