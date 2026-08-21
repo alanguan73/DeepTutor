@@ -466,7 +466,10 @@ export default function CompanionPage() {
   }
 
   async function onHoldStart() {
-    if (sendBlocked || recording || holdActiveRef.current) return;
+    // Allow barge-in while busy (generation/TTS); only lock on crisis / ask_user.
+    if (roomLocked || awaitingAskUser || recording || holdActiveRef.current) {
+      return;
+    }
     if (
       typeof navigator === "undefined" ||
       !navigator.mediaDevices?.getUserMedia ||
@@ -562,7 +565,8 @@ export default function CompanionPage() {
   }
 
   const canNewSession = Boolean(dtSessionId || messages.length > 0 || crisisHit);
-  const voiceDisabled = (sendBlocked || roomLocked) && !recording;
+  const voiceDisabled =
+    (roomLocked || awaitingAskUser) && !recording;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
