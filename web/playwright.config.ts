@@ -29,6 +29,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "companion-smoke",
+      testMatch: "**/companion.smoke.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "intake-smoke",
       testMatch: "**/intake.smoke.ts",
       use: { ...devices["Desktop Chrome"] },
