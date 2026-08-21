@@ -35,47 +35,6 @@ test.use({
   permissions: ["microphone"],
 });
 
-async function installFakeMediaRecorder(page: import("@playwright/test").Page) {
-  await page.evaluate(() => {
-    class FakeMediaRecorder {
-      state: "inactive" | "recording" = "inactive";
-      stream: MediaStream;
-      ondataavailable: ((ev: { data: Blob }) => void) | null = null;
-      onstop: (() => void) | null = null;
-
-      constructor(stream: MediaStream) {
-        this.stream = stream;
-      }
-
-      start() {
-        this.state = "recording";
-      }
-
-      stop() {
-        this.state = "inactive";
-        const blob = new Blob([new Uint8Array([1, 2, 3, 4])], {
-          type: "audio/webm",
-        });
-        this.ondataavailable?.({ data: blob });
-        this.onstop?.();
-      }
-    }
-
-    const fakeStream = new MediaStream();
-    const devices = navigator.mediaDevices;
-    if (devices) {
-      devices.getUserMedia = async () => fakeStream;
-    } else {
-      Object.defineProperty(navigator, "mediaDevices", {
-        configurable: true,
-        value: { getUserMedia: async () => fakeStream },
-      });
-    }
-    (window as unknown as { MediaRecorder: unknown }).MediaRecorder =
-      FakeMediaRecorder;
-  });
-}
-
 test.describe("Companion :: voice static", () => {
   test("shows hold-to-talk VoiceBar", async ({ page }) => {
     await page.goto("/companion", { waitUntil: "domcontentloaded" });
@@ -112,8 +71,41 @@ test.describe("Companion :: voice mocked STT path", () => {
       });
     });
 
+    await page.addInitScript(() => {
+      class FakeMediaRecorder {
+        state: "inactive" | "recording" = "inactive";
+        stream: MediaStream;
+        ondataavailable: ((ev: { data: Blob }) => void) | null = null;
+        onstop: (() => void) | null = null;
+
+        constructor(stream: MediaStream) {
+          this.stream = stream;
+        }
+
+        start() {
+          this.state = "recording";
+        }
+
+        stop() {
+          this.state = "inactive";
+          const blob = new Blob([new Uint8Array([1, 2, 3, 4])], {
+            type: "audio/webm",
+          });
+          this.ondataavailable?.({ data: blob });
+          this.onstop?.();
+        }
+      }
+
+      const fakeStream = new MediaStream();
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: { getUserMedia: async () => fakeStream },
+      });
+      (window as unknown as { MediaRecorder: unknown }).MediaRecorder =
+        FakeMediaRecorder;
+    });
+
     await page.goto("/companion", { waitUntil: "domcontentloaded" });
-    await installFakeMediaRecorder(page);
 
     const voice = page.getByRole("button", {
       name: /Hold to talk|按住说话/,
@@ -121,12 +113,9 @@ test.describe("Companion :: voice mocked STT path", () => {
     await expect(voice).toBeVisible({ timeout: 15_000 });
     await expect(voice).toBeEnabled();
 
-    const box = await voice.boundingBox();
-    expect(box).toBeTruthy();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.mouse.down();
-    await page.waitForTimeout(200);
-    await page.mouse.up();
+    await voice.dispatchEvent("pointerdown");
+    await page.waitForTimeout(250);
+    await voice.dispatchEvent("pointerup");
 
     await expect
       .poll(() => sttHits, { timeout: 15_000 })
