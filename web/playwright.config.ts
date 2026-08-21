@@ -34,6 +34,14 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "companion-voice-smoke",
+      testMatch: "**/companion.voice.smoke.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        permissions: ["microphone"],
+      },
+    },
+    {
       name: "intake-smoke",
       testMatch: "**/intake.smoke.ts",
       use: { ...devices["Desktop Chrome"] },
