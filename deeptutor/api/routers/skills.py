@@ -10,7 +10,7 @@ Mounted at ``/api/v1/skills``.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from deeptutor.multi_user.context import get_current_user
@@ -32,6 +32,8 @@ from deeptutor.services.skill.service import (
 )
 
 router = APIRouter()
+
+_MAX_PACKAGE_UPLOAD = 25 * 1024 * 1024
 
 
 class CreateSkillRequest(BaseModel):
@@ -264,6 +266,74 @@ async def install_skill(payload: InstallSkillRequest) -> dict[str, object]:
         "skill": outcome.result.info.to_dict(),
         "verdict": {"status": outcome.verdict.status, "detail": outcome.verdict.detail},
         "version": outcome.ref.version,
+    }
+
+
+@router.post("/import-package")
+async def import_skill_package(
+    file: UploadFile = File(...),
+    force: bool = Form(default=False),
+    as_psych: bool = Form(default=True),
+    extra_tags: str = Form(default=""),
+) -> dict[str, object]:
+    """Import a standard Agent/Claude skill package from a local upload.
+
+    Accepts:
+
+    * a ``.zip`` of one skill (``SKILL.md`` at root or one wrapper folder);
+    * a ``.zip`` of multiple skills (cangjie-style sibling folders);
+    * a bare ``SKILL.md`` file.
+
+    Uses the same install policy as hub installs (``always`` stripped, support
+    file whitelist). Imported skills appear in ``GET /list``.
+
+    ``as_psych`` (default true) stamps ``psych`` + ``distilled``; ``extra_tags``
+    is a comma-separated list merged into the same tag set.
+    """
+    import asyncio
+
+    from deeptutor.services.skill.local_import import import_skill_bytes
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload.")
+    if len(raw) > _MAX_PACKAGE_UPLOAD:
+        raise HTTPException(status_code=413, detail="Upload exceeds the 25 MB limit.")
+
+    tags: list[str] = []
+    if as_psych:
+        tags.extend(["psych", "distilled"])
+    for part in extra_tags.split(","):
+        tag = part.strip()
+        if tag:
+            tags.append(tag)
+
+    service = get_skill_service()
+    filename = file.filename or "SKILL.md"
+    try:
+        outcomes = await asyncio.to_thread(
+            import_skill_bytes,
+            raw,
+            filename=filename,
+            service=service,
+            force=force,
+            extra_tags=tags,
+        )
+    except SkillExistsError as exc:
+        raise HTTPException(status_code=409, detail=f"Skill already exists: {exc}")
+    except (SkillImportError, InvalidSkillNameError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "imported": [
+            {
+                "skill": item.result.info.to_dict(),
+                "source": item.source_path,
+                "skipped_files": list(item.result.skipped),
+            }
+            for item in outcomes
+        ],
+        "count": len(outcomes),
     }
 
 

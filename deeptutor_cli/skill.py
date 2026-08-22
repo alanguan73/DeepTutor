@@ -168,6 +168,64 @@ def register(app: typer.Typer) -> None:
         for rel, reason in outcome.result.skipped:
             console.print(f"  [dim]skipped {rel} — {reason}[/]")
 
+    @app.command("import-package")
+    def skill_import_package(
+        path: str = typer.Argument(
+            ...,
+            help="Path to a SKILL.md, a skill folder, or a .zip (single or multi-skill).",
+        ),
+        force: bool = typer.Option(
+            False, "--force", help="Overwrite existing skills with the same name."
+        ),
+        psych: bool = typer.Option(
+            True,
+            "--psych/--no-psych",
+            help="Stamp psych + distilled tags (default: on).",
+        ),
+        tag: list[str] = typer.Option(
+            [],
+            "--tag",
+            help="Extra tag (repeatable).",
+        ),
+    ) -> None:
+        """Import a standard Agent/Claude skill package from the local filesystem."""
+        from deeptutor.services.skill.local_import import import_skill_path
+        from deeptutor.services.skill.service import (
+            SkillExistsError,
+            SkillImportError,
+            get_skill_service,
+        )
+
+        extra_tags: list[str] = []
+        if psych:
+            extra_tags.extend(["psych", "distilled"])
+        extra_tags.extend(tag)
+
+        service = get_skill_service()
+        try:
+            outcomes = import_skill_path(
+                path, service=service, force=force, extra_tags=extra_tags
+            )
+        except SkillExistsError as exc:
+            console.print(
+                f"[bold red]Skill `{exc}` already exists.[/] Re-run with --force to replace it."
+            )
+            raise typer.Exit(code=1)
+        except SkillImportError as exc:
+            console.print(f"[bold red]Import failed:[/] {exc}")
+            raise typer.Exit(code=1)
+
+        for item in outcomes:
+            console.print(
+                f"[bold green]Imported[/] [bold]{item.result.info.name}[/] "
+                f"[dim](from {item.source_path})[/]"
+            )
+            for rel, reason in item.result.skipped:
+                console.print(f"  [dim]skipped {rel} — {reason}[/]")
+        console.print(
+            f"[dim]{len(outcomes)} skill(s) ready — list with `deeptutor skill list`.[/]"
+        )
+
     @app.command("login")
     def skill_login(
         provider: str | None = typer.Argument(

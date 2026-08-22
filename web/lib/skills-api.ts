@@ -152,6 +152,47 @@ export async function installSkillFromHub(
   };
 }
 
+export interface LocalImportedSkill {
+  name: string;
+  description: string;
+  source: string;
+}
+
+/**
+ * Import a standard Agent/Claude skill package (``.zip`` or bare ``SKILL.md``).
+ * Supports multi-skill zips (e.g. cangjie-skill output folders).
+ * Defaults to psych tagging (`as_psych`); pass `extraTags` for additional labels.
+ */
+export async function importSkillPackage(
+  file: File,
+  options?: { force?: boolean; asPsych?: boolean; extraTags?: string[] },
+): Promise<LocalImportedSkill[]> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("force", options?.force ? "true" : "false");
+  form.append("as_psych", options?.asPsych === false ? "false" : "true");
+  if (options?.extraTags?.length) {
+    form.append("extra_tags", options.extraTags.join(","));
+  }
+  const response = await apiFetch(apiUrl("/api/v1/skills/import-package"), {
+    method: "POST",
+    body: form,
+  });
+  const data = await asJson(response);
+  invalidateSkillsCache();
+  const rows = Array.isArray(data?.imported) ? data.imported : [];
+  return rows.map(
+    (row: {
+      skill?: { name?: unknown; description?: unknown };
+      source?: unknown;
+    }) => ({
+      name: String(row?.skill?.name ?? ""),
+      description: String(row?.skill?.description ?? ""),
+      source: String(row?.source ?? ""),
+    }),
+  );
+}
+
 // ── EduHub / hub browsing ───────────────────────────────────────────────
 // Powers the in-app "Import from EduHub" browser. The backend proxies the
 // hub's public catalog (no login, no iframe), so the panel can render hub
