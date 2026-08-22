@@ -39,7 +39,9 @@ export class CompanionVoiceController {
 
   async commitRecording(blob: Blob): Promise<void> {
     const text = (await this.deps.transcribe(blob)).trim();
-    if (!text) return;
+    if (!text) {
+      throw new Error("没有识别到有效语音，请再说一次或改用文字。");
+    }
     await this.bargeInWithText(text);
   }
 
@@ -51,6 +53,8 @@ export class CompanionVoiceController {
     this.speaking = true;
     try {
       await this.deps.synthesizeAndPlay(trimmed, this.ttsAbort.signal);
+    } catch {
+      // Voice is optional; missing TTS config must not surface as a hard failure.
     } finally {
       this.speaking = false;
     }

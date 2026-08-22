@@ -79,13 +79,17 @@ export default function TrainPage() {
               </p>
               <ol className="list-decimal space-y-1.5 pl-4">
                 <li>
-                  Run{" "}
-                  <span className="font-mono">psych-academy install-skills</span>{" "}
-                  (or distill a skill on{" "}
+                  Import a standard skill package on{" "}
+                  <Link href="/space/skills" className="underline">
+                    /space/skills
+                  </Link>{" "}
+                  (zip / SKILL.md), run{" "}
+                  <span className="font-mono">psych-academy install-skills</span>
+                  , or distill on{" "}
                   <Link href="/distill" className="underline">
                     /distill
                   </Link>
-                  ).
+                  .
                 </li>
                 <li>Return here and Start Guided Learning for a skill.</li>
               </ol>

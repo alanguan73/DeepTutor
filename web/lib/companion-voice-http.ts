@@ -2,13 +2,24 @@ import { apiFetch, apiUrl } from "@/lib/api";
 
 export async function companionTranscribe(blob: Blob): Promise<string> {
   const form = new FormData();
-  form.append("file", blob, "companion.webm");
+  const mime = blob.type || "audio/webm";
+  const ext = mime.includes("ogg")
+    ? "ogg"
+    : mime.includes("mp4") || mime.includes("m4a")
+      ? "mp4"
+      : "webm";
+  form.append("file", blob, `companion.${ext}`);
   form.append("language", "zh");
   const resp = await apiFetch(apiUrl("/api/v1/voice/stt"), {
     method: "POST",
     body: form,
   });
-  if (!resp.ok) throw new Error(`stt ${resp.status}`);
+  if (!resp.ok) {
+    const detail = (await resp.json().catch(() => null)) as {
+      detail?: string;
+    } | null;
+    throw new Error(detail?.detail || `stt ${resp.status}`);
+  }
   const data = (await resp.json()) as { text?: string };
   return (data.text || "").trim();
 }
