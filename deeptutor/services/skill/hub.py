@@ -90,6 +90,29 @@ _ZIP_MAX_ENTRY_BYTES = 4_000_000
 _ZIP_MAX_TOTAL_BYTES = 40_000_000
 _ZIP_MAX_RATIO = 200.0
 
+# Marketing / binary assets (e.g. cangjie-skill ``assets/*.png``) are not part of
+# the playbook; skip them at extract time instead of aborting the whole import.
+_ZIP_SKIP_SUFFIXES = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".ico",
+        ".svg",
+        ".mp3",
+        ".mp4",
+        ".mov",
+        ".wav",
+        ".pdf",
+        ".zip",
+        ".tgz",
+        ".gz",
+    }
+)
+
 _HTTP_TIMEOUT = 30.0
 _FETCH_CMD_TIMEOUT = 120.0
 
@@ -199,8 +222,15 @@ def _extract_skill_zip(zip_path: Path, dest: Path) -> None:
                 raise SkillImportError(f"Illegal path in package archive: {raw}")
             if raw.startswith("__MACOSX/") or rel.name.startswith("."):
                 continue
+            suffix = rel.suffix.lower()
+            if suffix in _ZIP_SKIP_SUFFIXES:
+                continue
             if info.file_size > _ZIP_MAX_ENTRY_BYTES:
-                raise SkillImportError(f"Package entry too large: {raw}")
+                # Oversized playbook (SKILL.md) is fatal; oversized extras are skipped
+                # so packs like cangjie-skill (QR / promo images) still import.
+                if rel.name.upper() == "SKILL.MD" or suffix in {".md", ".markdown", ".txt", ".yaml", ".yml"}:
+                    raise SkillImportError(f"Package entry too large: {raw}")
+                continue
             if info.compress_size > 0:
                 if info.file_size / info.compress_size > _ZIP_MAX_RATIO:
                     raise SkillImportError(f"Suspicious compression ratio: {raw}")
