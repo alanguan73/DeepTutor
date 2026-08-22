@@ -1,22 +1,41 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { FlaskConical, Loader2 } from "lucide-react";
 import DistillComposer from "@/components/distill/DistillComposer";
 import DistillMessageList, {
   type DistillMessage,
 } from "@/components/distill/DistillMessageList";
 import {
+  listKnowledgeBases,
+  type KnowledgeBaseSummary,
+} from "@/lib/knowledge-api";
+import {
   UnifiedWSClient,
   type StartTurnMessage,
   type StreamEvent,
 } from "@/lib/unified-ws";
+
+type DistillMode = "simple" | "cangjie";
+
+const CANGJIE_DEFAULT_BRIEF_ZH =
+  "请按 cangjie-skill 从该知识库蒸馏专家技能包";
+const CANGJIE_DEFAULT_BRIEF_EN =
+  "Please distill an expert skill pack from this knowledge base using cangjie-skill";
 
 function newMessageId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultCangjieBrief(): string {
+  if (typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("zh")) {
+    return CANGJIE_DEFAULT_BRIEF_ZH;
+  }
+  return CANGJIE_DEFAULT_BRIEF_EN;
 }
 
 export default function DistillPage() {
@@ -26,6 +45,12 @@ export default function DistillPage() {
   const [dtSessionId, setDtSessionId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
+  const [mode, setMode] = useState<DistillMode>("simple");
+  const [kbName, setKbName] = useState("");
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>(
+    [],
+  );
+  const [kbsLoaded, setKbsLoaded] = useState(false);
 
   const clientRef = useRef<UnifiedWSClient | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -35,6 +60,23 @@ export default function DistillPage() {
   useEffect(() => {
     sessionRef.current = dtSessionId;
   }, [dtSessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listKnowledgeBases()
+      .then((list) => {
+        if (!cancelled) setKnowledgeBases(list);
+      })
+      .catch(() => {
+        if (!cancelled) setKnowledgeBases([]);
+      })
+      .finally(() => {
+        if (!cancelled) setKbsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleEvent = useCallback((event: StreamEvent) => {
     if (event.type === "session" || event.type === "session_meta") {
@@ -151,8 +193,25 @@ export default function DistillPage() {
   }
 
   function startTurn() {
-    const text = draft.trim();
-    if (!text || busy) return;
+    if (busy) return;
+
+    if (mode === "cangjie" && !kbName) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: "system",
+          text: "Select a knowledge base to use Cangjie distill.",
+        },
+      ]);
+      return;
+    }
+
+    const trimmed = draft.trim();
+    if (mode === "simple" && !trimmed) return;
+
+    const text =
+      mode === "cangjie" && !trimmed ? defaultCangjieBrief() : trimmed;
 
     setMessages((prev) => [
       ...prev,
@@ -171,7 +230,10 @@ export default function DistillPage() {
       content: text,
       capability: "distill",
       session_id: sessionRef.current ?? undefined,
-      config: {},
+      config:
+        mode === "cangjie"
+          ? { distill_mode: "cangjie", kb_name: kbName }
+          : {},
     };
     sendWithRetry(payload);
   }
@@ -184,7 +246,11 @@ export default function DistillPage() {
     setDraft("");
     setBusy(false);
     setDtSessionId(null);
+    setKbName("");
   }
+
+  const sendDisabled =
+    busy || (mode === "simple" && !draft.trim());
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -204,6 +270,37 @@ export default function DistillPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="tablist"
+            aria-label="Distill mode"
+            className="flex items-center gap-0.5 rounded-lg bg-[var(--muted)]/70 p-0.5"
+          >
+            {(
+              [
+                { key: "simple", label: "Simple" },
+                { key: "cangjie", label: "Cangjie" },
+              ] as const
+            ).map((tab) => {
+              const active = mode === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  disabled={busy}
+                  onClick={() => setMode(tab.key)}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-[background-color,color] duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${
+                    active
+                      ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
           <button
             type="button"
             onClick={handleNewDistill}
@@ -227,10 +324,51 @@ export default function DistillPage() {
         </div>
       </div>
 
+      {mode === "cangjie" && (
+        <div className="border-t border-[var(--border)] bg-[var(--card)]/20 px-4 py-2.5">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-1.5">
+            <label className="text-[11px] font-medium text-[var(--muted-foreground)]">
+              Knowledge base
+            </label>
+            <select
+              value={kbName}
+              onChange={(e) => setKbName(e.target.value)}
+              disabled={busy}
+              aria-label="Knowledge base"
+              className="h-9 w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">Select a knowledge base…</option>
+              {knowledgeBases.map((kb) => (
+                <option key={kb.name} value={kb.name}>
+                  {kb.name}
+                </option>
+              ))}
+            </select>
+            {kbsLoaded && knowledgeBases.length === 0 ? (
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                No knowledge bases yet. Create one on the{" "}
+                <Link
+                  href="/knowledge"
+                  className="underline hover:text-[var(--foreground)]"
+                >
+                  Knowledge
+                </Link>{" "}
+                page.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       <DistillComposer
         draft={draft}
         busy={busy}
-        sendDisabled={busy}
+        sendDisabled={sendDisabled}
+        placeholder={
+          mode === "cangjie"
+            ? "Optional brief for Cangjie distill…"
+            : "Paste a counseling methodology excerpt…"
+        }
         onDraftChange={setDraft}
         onSend={startTurn}
       />
