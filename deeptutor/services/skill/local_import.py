@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import shutil
 import tempfile
 from typing import Any
@@ -25,9 +24,6 @@ from .service import (
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _DEFAULT_DESCRIPTION = "Imported skill package."
-_FRONTMATTER_NAME_RE = re.compile(
-    r"(?ms)^---\s*\n.*?^name:\s*[\"']?([^\n\"']+)[\"']?\s*$",
-)
 
 
 @dataclass(slots=True)
@@ -184,13 +180,14 @@ def import_skill_path(
 
 
 def _peek_package_name(root: Path) -> str:
-    """Best-effort frontmatter ``name`` (falls back to directory name)."""
+    """Frontmatter ``name`` via :meth:`SkillService._parse_frontmatter`."""
     skill_md = root / "SKILL.md"
     if skill_md.is_file():
         text = skill_md.read_text(encoding="utf-8", errors="replace")
-        match = _FRONTMATTER_NAME_RE.search(text)
-        if match:
-            return match.group(1).strip()
+        meta, _ = SkillService._parse_frontmatter(text)
+        name = str(meta.get("name") or "").strip()
+        if name:
+            return name
     return root.name
 
 
@@ -212,21 +209,6 @@ def _resolve_import_tags(
         resolved.append("cangjie")
         seen.add("cangjie")
     return resolved
-
-
-def _ensure_cangjie_tag(
-    service: SkillService,
-    result: SkillInstallResult,
-) -> SkillInstallResult:
-    """Post-install safety: stamp ``cangjie`` if the installed name implies it."""
-    info = result.info
-    if "cangjie" not in (info.name or "").lower():
-        return result
-    tags = list(info.tags or [])
-    if "cangjie" in tags:
-        return result
-    updated = service.update(info.name, tags=[*tags, "cangjie"])
-    return SkillInstallResult(info=updated, skipped=result.skipped)
 
 
 def _install_roots(
@@ -256,7 +238,6 @@ def _install_roots(
                 extra_tags=merged_tags,
                 origin=origin,
             )
-            result = _ensure_cangjie_tag(service, result)
             outcomes.append(
                 LocalImportOutcome(result=result, source_path=root.name)
             )
