@@ -20,9 +20,11 @@ import {
 type DistillMode = "simple" | "cangjie";
 
 const CANGJIE_DEFAULT_BRIEF_ZH =
-  "请按 cangjie-skill 从该知识库蒸馏专家技能包";
+  "请按 cangjie-skill 蒸馏专家技能包（可用粘贴正文和/或知识库）";
 const CANGJIE_DEFAULT_BRIEF_EN =
-  "Please distill an expert skill pack from this knowledge base using cangjie-skill";
+  "Please distill an expert skill pack with cangjie-skill (paste and/or knowledge base)";
+
+const CANGJIE_PASTE_MIN = 80;
 
 function newMessageId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -195,23 +197,29 @@ export default function DistillPage() {
   function startTurn() {
     if (busy) return;
 
-    if (mode === "cangjie" && !kbName) {
+    const trimmed = draft.trim();
+    const hasPaste = trimmed.length >= CANGJIE_PASTE_MIN;
+    const hasKb = Boolean(kbName);
+
+    if (mode === "cangjie" && !hasKb && !hasPaste) {
       setMessages((prev) => [
         ...prev,
         {
           id: newMessageId(),
           role: "system",
-          text: "Select a knowledge base to use Cangjie distill.",
+          text:
+            "Cangjie distill needs a knowledge base and/or pasted source text (about 80+ characters). You can also upload a .txt / .md file.",
         },
       ]);
       return;
     }
 
-    const trimmed = draft.trim();
     if (mode === "simple" && !trimmed) return;
 
     const text =
-      mode === "cangjie" && !trimmed ? defaultCangjieBrief() : trimmed;
+      mode === "cangjie" && !trimmed
+        ? defaultCangjieBrief()
+        : trimmed || defaultCangjieBrief();
 
     setMessages((prev) => [
       ...prev,
@@ -225,17 +233,39 @@ export default function DistillPage() {
     }, 120_000);
     retryTimersRef.current.add(busyWatchdog);
 
+    const cangjieConfig: Record<string, string> = {
+      distill_mode: "cangjie",
+    };
+    if (hasKb) cangjieConfig.kb_name = kbName;
+
     const payload: StartTurnMessage = {
       type: "start_turn",
       content: text,
       capability: "distill",
       session_id: sessionRef.current ?? undefined,
-      config:
-        mode === "cangjie"
-          ? { distill_mode: "cangjie", kb_name: kbName }
-          : {},
+      config: mode === "cangjie" ? cangjieConfig : {},
     };
     sendWithRetry(payload);
+  }
+
+  function handleUploadFile(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      setDraft((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+    };
+    reader.onerror = () => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: "system",
+          text: `Failed to read file: ${file.name}`,
+        },
+      ]);
+    };
+    reader.readAsText(file);
   }
 
   function handleNewDistill() {
@@ -250,7 +280,9 @@ export default function DistillPage() {
   }
 
   const sendDisabled =
-    busy || (mode === "simple" && !draft.trim());
+    busy ||
+    (mode === "simple" && !draft.trim()) ||
+    (mode === "cangjie" && !kbName && draft.trim().length < CANGJIE_PASTE_MIN);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -326,36 +358,56 @@ export default function DistillPage() {
 
       {mode === "cangjie" && (
         <div className="border-t border-[var(--border)] bg-[var(--card)]/20 px-4 py-2.5">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-1.5">
-            <label className="text-[11px] font-medium text-[var(--muted-foreground)]">
-              Knowledge base
-            </label>
-            <select
-              value={kbName}
-              onChange={(e) => setKbName(e.target.value)}
-              disabled={busy}
-              aria-label="Knowledge base"
-              className="h-9 w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <option value="">Select a knowledge base…</option>
-              {knowledgeBases.map((kb) => (
-                <option key={kb.name} value={kb.name}>
-                  {kb.name}
-                </option>
-              ))}
-            </select>
-            {kbsLoaded && knowledgeBases.length === 0 ? (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                No knowledge bases yet. Create one on the{" "}
-                <Link
-                  href="/knowledge"
-                  className="underline hover:text-[var(--foreground)]"
-                >
-                  Knowledge
-                </Link>{" "}
-                page.
-              </p>
-            ) : null}
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-medium text-[var(--muted-foreground)]">
+                Knowledge base (optional if you paste / upload text)
+              </label>
+              <select
+                value={kbName}
+                onChange={(e) => setKbName(e.target.value)}
+                disabled={busy}
+                aria-label="Knowledge base"
+                className="h-9 w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">No knowledge base — paste only</option>
+                {knowledgeBases.map((kb) => (
+                  <option key={kb.name} value={kb.name}>
+                    {kb.name}
+                  </option>
+                ))}
+              </select>
+              {kbsLoaded && knowledgeBases.length === 0 ? (
+                <p className="text-[11px] text-[var(--muted-foreground)]">
+                  No knowledge bases yet. Create one on the{" "}
+                  <Link
+                    href="/knowledge"
+                    className="underline hover:text-[var(--foreground)]"
+                  >
+                    Knowledge
+                  </Link>{" "}
+                  page, or paste / upload text below.
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/40">
+                Upload .txt / .md
+                <input
+                  type="file"
+                  accept=".txt,.md,.markdown,text/plain,text/markdown"
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => {
+                    void handleUploadFile(e.target.files?.[0] ?? null);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <span className="text-[11px] text-[var(--muted-foreground)]">
+                Paste long source in the composer (≥{CANGJIE_PASTE_MIN} chars) and/or pick a KB.
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -366,7 +418,7 @@ export default function DistillPage() {
         sendDisabled={sendDisabled}
         placeholder={
           mode === "cangjie"
-            ? "Optional brief for Cangjie distill…"
+            ? "Paste source text to distill (or a short brief if using a KB)…"
             : "Paste a counseling methodology excerpt…"
         }
         onDraftChange={setDraft}
