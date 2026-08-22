@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Heart, Loader2 } from "lucide-react";
 import CompanionComposer from "@/components/companion/CompanionComposer";
+import CompanionExpertPicker from "@/components/companion/CompanionExpertPicker";
 import CompanionMessageList, {
   type CompanionMessage,
 } from "@/components/companion/CompanionMessageList";
@@ -10,12 +11,6 @@ import CompanionProgressPanel, {
   type CompanionProgress,
 } from "@/components/companion/CompanionProgressPanel";
 import CompanionVoiceBar from "@/components/companion/CompanionVoiceBar";
-import {
-  extractAskUserPayload,
-  type AskUserPayload,
-} from "@/components/chat/home/AskUserOptions";
-import CounselAskUserCard from "@/components/counsel/CounselAskUserCard";
-import { hasPendingAskUser } from "@/lib/ask-user-state";
 import { looksLikeCrisisRedirect } from "@/lib/counsel-transcript";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { CompanionVoiceController } from "@/lib/companion-voice";
@@ -36,27 +31,11 @@ function newMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function askUserPayloadFromToolCall(event: StreamEvent): AskUserPayload | null {
-  const meta = (event.metadata || {}) as Record<string, unknown>;
-  const args = meta.args;
-  if (!args || typeof args !== "object") return null;
-  const questions = (args as { questions?: unknown }).questions;
-  if (!Array.isArray(questions) || questions.length === 0) return null;
-  return {
-    intro: null,
-    questions: questions.map((q, idx) => {
-      const row = q as Record<string, unknown>;
-      return {
-        id: String(row.id || `q${idx}`),
-        prompt: String(row.prompt || ""),
-        header: typeof row.header === "string" ? row.header : null,
-        multi_select: false,
-        options: [],
-        allow_free_text: true,
-        placeholder: null,
-      };
-    }),
-  };
+function newSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `companion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function parseProgressPayload(event: StreamEvent): CompanionProgress | null {
@@ -103,10 +82,11 @@ export default function CompanionPage() {
   const [crisisHit, setCrisisHit] = useState(false);
   const [progressUiOn, setProgressUiOn] = useState(false);
   const [progress, setProgress] = useState<CompanionProgress | null>(null);
-  const [pendingAskUser, setPendingAskUser] = useState<AskUserPayload | null>(
-    null,
-  );
   const [recording, setRecording] = useState(false);
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [personaId, setPersonaId] = useState("");
+  const [personaError, setPersonaError] = useState<string | null>(null);
 
   const clientRef = useRef<UnifiedWSClient | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -182,6 +162,8 @@ export default function CompanionPage() {
       }
 
       if (event.type === "session" || event.type === "session_meta") {
+        setConnected(true);
+        setEverConnected(true);
         const metadata = (event.metadata || {}) as Record<string, unknown>;
         const sessionId =
           typeof metadata.session_id === "string"
@@ -204,31 +186,24 @@ export default function CompanionPage() {
         return;
       }
 
-      if (event.type === "done") {
-        const card = extractAskUserPayload(turnEventsRef.current);
-        const askPending = Boolean(card && !card.resolved);
-        // Do not TTS over an unresolved ask_user card.
-        if (!askPending) {
+      if (event.type === "done" || event.type === "result") {
+        if (event.type === "done") {
           const full = lastAssistantTextRef.current;
           if (full && !crisisHitRef.current) {
-            void voiceRef.current?.speakAssistant(full);
+            void voiceRef.current?.speakAssistant(full).catch(() => {
+              // TTS optional — missing voice model must not block the UI.
+            });
           }
         }
         assistantBufferRef.current = null;
-        if (askPending && card) {
-          setPendingAskUser(card.payload);
-          setBusy(false);
-          busyRef.current = false;
-          // Keep turn_id — submit_user_reply needs it (same as /counsel).
-          setConnected(true);
-          return;
-        }
-        setPendingAskUser(null);
         setBusy(false);
         busyRef.current = false;
         setConnected(true);
-        setActiveTurnId(null);
-        turnIdRef.current = null;
+        setEverConnected(true);
+        if (event.type === "done") {
+          setActiveTurnId(null);
+          turnIdRef.current = null;
+        }
         return;
       }
 
@@ -244,15 +219,8 @@ export default function CompanionPage() {
         ]);
         setBusy(false);
         busyRef.current = false;
-        setPendingAskUser(null);
         setActiveTurnId(null);
         turnIdRef.current = null;
-        return;
-      }
-
-      if (event.type === "tool_call" && event.content === "ask_user") {
-        const payload = askUserPayloadFromToolCall(event);
-        if (payload) setPendingAskUser(payload);
         return;
       }
 
@@ -263,10 +231,6 @@ export default function CompanionPage() {
       }
 
       if (event.type === "progress") {
-        const meta = event.metadata || {};
-        if (meta.ask_user_resolved) {
-          setPendingAskUser(null);
-        }
         if (event.stage === "companion_progress") {
           const parsed = parseProgressPayload(event);
           if (parsed) setProgress(parsed);
@@ -285,7 +249,6 @@ export default function CompanionPage() {
       if (looksLikeCrisisRedirect(text)) {
         crisisHitRef.current = true;
         setCrisisHit(true);
-        setPendingAskUser(null);
       }
     },
     [appendAssistantContent],
@@ -342,14 +305,10 @@ export default function CompanionPage() {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
-  }, [messages, pendingAskUser, progress]);
+  }, [messages, progress]);
 
   const roomLocked = crisisHit;
-  const awaitingAskUser =
-    Boolean(pendingAskUser) &&
-    Boolean(activeTurnId) &&
-    hasPendingAskUser(turnEventsRef.current, activeTurnId);
-  const sendBlocked = busy || roomLocked || awaitingAskUser;
+  const sendBlocked = busy || roomLocked;
 
   function sendWithRetry(
     payload:
@@ -391,6 +350,14 @@ export default function CompanionPage() {
     retryTimersRef.current.add(timer);
   }
 
+  function ensureSessionId(): string {
+    if (sessionRef.current) return sessionRef.current;
+    const id = newSessionId();
+    sessionRef.current = id;
+    setDtSessionId(id);
+    return id;
+  }
+
   async function syncProgressUi(next: boolean, sessionId: string | null) {
     if (!sessionId) return;
     try {
@@ -407,10 +374,33 @@ export default function CompanionPage() {
     }
   }
 
+  async function syncPersona(nextPersonaId: string, sessionId: string) {
+    try {
+      await apiFetch(
+        apiUrl(`/api/v1/companion/sessions/${encodeURIComponent(sessionId)}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ persona_id: nextPersonaId }),
+        },
+      );
+    } catch {
+      // Companion turn still proceeds; server may lack the binding until retry.
+    }
+  }
+
   function handleProgressToggle() {
     const next = !progressUiOn;
     setProgressUiOn(next);
     void syncProgressUi(next, sessionRef.current);
+  }
+
+  function handlePersonaChange(next: string) {
+    setPersonaId(next);
+    setPersonaError(null);
+    if (!next) return;
+    const sessionId = ensureSessionId();
+    void syncPersona(next, sessionId);
   }
 
   function handleInterrupt() {
@@ -423,7 +413,6 @@ export default function CompanionPage() {
     setBusy(false);
     setActiveTurnId(null);
     turnIdRef.current = null;
-    setPendingAskUser(null);
   }
 
   function startTurnWithText(text: string) {
@@ -433,10 +422,18 @@ export default function CompanionPage() {
     // start a new turn in the same stack after cancelTurn.
     if (busyRef.current) return;
 
+    if (!personaId) {
+      setPersonaError("请先选择专家人格");
+      return;
+    }
+
     turnEventsRef.current = [];
     assistantBufferRef.current = null;
     lastAssistantTextRef.current = "";
-    setPendingAskUser(null);
+    setPersonaError(null);
+
+    const sessionId = ensureSessionId();
+    void syncPersona(personaId, sessionId);
 
     setMessages((prev) => [
       ...prev,
@@ -456,7 +453,7 @@ export default function CompanionPage() {
       type: "start_turn",
       content: trimmed,
       capability: "companion",
-      session_id: sessionRef.current ?? undefined,
+      session_id: sessionId,
       language: "zh",
       config: { progress_ui: progressUiRef.current },
     });
@@ -468,19 +465,25 @@ export default function CompanionPage() {
   function onSend() {
     const text = draft.trim();
     if (!text || sendBlocked) return;
+    if (!personaId) {
+      setPersonaError("请先选择专家人格");
+      return;
+    }
     startTurnWithText(text);
   }
 
   async function onHoldStart() {
-    // Allow barge-in while busy (generation/TTS); only lock on crisis / ask_user.
-    if (roomLocked || awaitingAskUser || recording || holdActiveRef.current) {
+    // Allow barge-in while busy (generation/TTS); only lock on crisis.
+    if (roomLocked || recording || holdActiveRef.current || voiceTranscribing) {
       return;
     }
+    setVoiceError(null);
     if (
       typeof navigator === "undefined" ||
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
     ) {
+      setVoiceError("当前浏览器不支持录音，请换 Chrome / Edge，或改用文字输入。");
       return;
     }
     holdActiveRef.current = true;
@@ -492,13 +495,21 @@ export default function CompanionPage() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       holdActiveRef.current = false;
+      setVoiceError("无法使用麦克风：请在浏览器允许本站麦克风权限后重试。");
       return;
     }
     if (!holdActiveRef.current) {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
-    const rec = new MediaRecorder(stream);
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     chunksRef.current = [];
     rec.ondataavailable = (e) => {
       if (e.data.size) chunksRef.current.push(e.data);
@@ -523,33 +534,32 @@ export default function CompanionPage() {
       }
       rec.stream.getTracks().forEach((t) => t.stop());
     });
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    const mimeType = rec.mimeType || "audio/webm";
+    const blob = new Blob(chunksRef.current, { type: mimeType });
     chunksRef.current = [];
-    await voiceRef.current?.commitRecording(blob);
+    if (!blob.size) {
+      setVoiceError("没录到声音，请按住稍久一点再说。");
+      return;
+    }
+    setVoiceTranscribing(true);
+    try {
+      await voiceRef.current?.commitRecording(blob);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "语音识别失败";
+      if (/No active STT|STT model|stt/i.test(msg) || msg.includes("400")) {
+        setVoiceError(
+          "语音识别未配置：请到 Settings → Voice 添加并启用 STT 模型（按住说话才能用）。也可先用文字输入。",
+        );
+      } else if (/denied|permission|麦克风/i.test(msg)) {
+        setVoiceError("麦克风权限被拒绝，请在浏览器设置中允许后重试。");
+      } else {
+        setVoiceError(msg || "语音识别失败，请改用文字输入。");
+      }
+    } finally {
+      setVoiceTranscribing(false);
+    }
   }
 
-  function submitAskUser(answers: Array<{ questionId: string; text: string }>) {
-    const turnId = turnIdRef.current;
-    // Allow submit while the card is shown (busy is false after ask_user pause).
-    // Reject only when already sending a reply or room is locked.
-    if (!turnId || roomLocked) return;
-    if (busyRef.current && !pendingAskUser) return;
-    voiceRef.current?.flushAudio();
-    busyRef.current = true;
-    setBusy(true);
-    setPendingAskUser(null);
-    const busyWatchdog = setTimeout(() => {
-      retryTimersRef.current.delete(busyWatchdog);
-      busyRef.current = false;
-      setBusy(false);
-    }, 180_000);
-    retryTimersRef.current.add(busyWatchdog);
-    sendWithRetry({
-      type: "submit_user_reply",
-      turn_id: turnId,
-      answers,
-    });
-  }
 
   function handleNewSession() {
     voiceRef.current?.flushAudio();
@@ -569,14 +579,12 @@ export default function CompanionPage() {
     setActiveTurnId(null);
     setCrisisHit(false);
     setProgress(null);
-    setPendingAskUser(null);
     holdActiveRef.current = false;
     setRecording(false);
   }
 
   const canNewSession = Boolean(dtSessionId || messages.length > 0 || crisisHit);
-  const voiceDisabled =
-    (roomLocked || awaitingAskUser) && !recording;
+  const voiceDisabled = roomLocked && !recording;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -596,6 +604,10 @@ export default function CompanionPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <CompanionExpertPicker
+            personaId={personaId}
+            onPersonaChange={handlePersonaChange}
+          />
           <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
             <input
               type="checkbox"
@@ -632,18 +644,20 @@ export default function CompanionPage() {
         </div>
       )}
 
+      {(personaError || voiceError) && (
+        <div
+          role="alert"
+          className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-800 dark:text-red-200"
+        >
+          {personaError || voiceError}
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="mx-auto flex h-full w-full max-w-3xl gap-3 px-4 py-4">
           <div ref={scrollerRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="space-y-4">
               <CompanionMessageList messages={messages} />
-              {awaitingAskUser && pendingAskUser ? (
-                <CounselAskUserCard
-                  payload={pendingAskUser}
-                  busy={busy}
-                  onSubmit={submitAskUser}
-                />
-              ) : null}
             </div>
           </div>
           {progressUiOn ? (
@@ -669,6 +683,7 @@ export default function CompanionPage() {
         voiceSlot={
           <CompanionVoiceBar
             recording={recording}
+            transcribing={voiceTranscribing}
             disabled={voiceDisabled}
             onHoldStart={() => {
               void onHoldStart();
