@@ -103,7 +103,9 @@ export default function CompanionPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const holdActiveRef = useRef(false);
-  const startTurnWithTextRef = useRef<(text: string) => void>(() => {});
+  const startTurnWithTextRef = useRef<(text: string) => void | Promise<void>>(
+    () => {},
+  );
   const handleInterruptRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -375,18 +377,14 @@ export default function CompanionPage() {
   }
 
   async function syncPersona(nextPersonaId: string, sessionId: string) {
-    try {
-      await apiFetch(
-        apiUrl(`/api/v1/companion/sessions/${encodeURIComponent(sessionId)}`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ persona_id: nextPersonaId }),
-        },
-      );
-    } catch {
-      // Companion turn still proceeds; server may lack the binding until retry.
-    }
+    await apiFetch(
+      apiUrl(`/api/v1/companion/sessions/${encodeURIComponent(sessionId)}`),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona_id: nextPersonaId }),
+      },
+    );
   }
 
   function handleProgressToggle() {
@@ -400,7 +398,9 @@ export default function CompanionPage() {
     setPersonaError(null);
     if (!next) return;
     const sessionId = ensureSessionId();
-    void syncPersona(next, sessionId);
+    void syncPersona(next, sessionId).catch(() => {
+      setPersonaError("专家人格绑定失败，请重试");
+    });
   }
 
   function handleInterrupt() {
@@ -415,7 +415,7 @@ export default function CompanionPage() {
     turnIdRef.current = null;
   }
 
-  function startTurnWithText(text: string) {
+  async function startTurnWithText(text: string) {
     const trimmed = text.trim();
     if (!trimmed || roomLocked || crisisHitRef.current) return;
     // busyRef is cleared synchronously in handleInterrupt so barge-in can
@@ -427,13 +427,18 @@ export default function CompanionPage() {
       return;
     }
 
+    const sessionId = ensureSessionId();
+    try {
+      await syncPersona(personaId, sessionId);
+    } catch {
+      setPersonaError("专家人格绑定失败，请重试");
+      return;
+    }
+
     turnEventsRef.current = [];
     assistantBufferRef.current = null;
     lastAssistantTextRef.current = "";
     setPersonaError(null);
-
-    const sessionId = ensureSessionId();
-    void syncPersona(personaId, sessionId);
 
     setMessages((prev) => [
       ...prev,
@@ -469,7 +474,7 @@ export default function CompanionPage() {
       setPersonaError("请先选择专家人格");
       return;
     }
-    startTurnWithText(text);
+    void startTurnWithText(text);
   }
 
   async function onHoldStart() {
@@ -579,6 +584,7 @@ export default function CompanionPage() {
     setActiveTurnId(null);
     setCrisisHit(false);
     setProgress(null);
+    setPersonaError(null);
     holdActiveRef.current = false;
     setRecording(false);
   }
