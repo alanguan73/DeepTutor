@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,18 +15,21 @@ import {
   Store,
   Tag as TagIcon,
   Trash2,
+  Upload,
   Wand2,
   X,
 } from "lucide-react";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
 import EduHubImportModal from "@/components/space/EduHubImportModal";
 import { isValidSkillName, slugifySkillName } from "@/lib/skill-slug";
+import { createExpertPack } from "@/lib/expert-packs-api";
 import {
   createSkill,
   createSkillTag,
   deleteSkill,
   deleteSkillTag,
   getSkill,
+  importSkillPackage,
   listSkillTags,
   listSkills,
   renameSkillTag,
@@ -83,6 +86,8 @@ export default function SkillsSection() {
   const [viewer, setViewer] = useState<SkillViewerState | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [packageImporting, setPackageImporting] = useState(false);
+  const packageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [filterTag, setFilterTag] = useState<string | "all" | "untagged">(
     "all",
@@ -155,6 +160,74 @@ export default function SkillsSection() {
     });
     setEditorTagDraft("");
   }, []);
+
+  const handlePackageFile = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      setPackageImporting(true);
+      setErrorMsg(null);
+      try {
+        let imported;
+        try {
+          imported = await importSkillPackage(file, {
+            asPsych: true,
+            force: false,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const conflict =
+            /already exists/i.test(msg) || /\b409\b/.test(msg);
+          if (
+            conflict &&
+            window.confirm(
+              t(
+                "Some skills already exist. Overwrite skills with the same name?",
+              ),
+            )
+          ) {
+            imported = await importSkillPackage(file, {
+              asPsych: true,
+              force: true,
+            });
+          } else {
+            throw err;
+          }
+        }
+        await load();
+        if (imported.length === 0) {
+          setErrorMsg(t("No skills were imported from the package."));
+        } else {
+          window.alert(
+            t("Imported {{count}} skill(s): {{names}}", {
+              count: imported.length,
+              names: imported.map((s) => s.name).join(", "),
+            }),
+          );
+          const names = imported.map((s) => s.name).filter(Boolean);
+          if (
+            names.length >= 1 &&
+            window.confirm(
+              t("Register these skills as an Expert Pack for companion?"),
+            )
+          ) {
+            const display =
+              window.prompt(t("Expert display name"), names[0]) || names[0];
+            await createExpertPack({
+              display_name: display,
+              skill_names: names,
+              source: { kind: "import", filename: file.name },
+            });
+          }
+        }
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPackageImporting(false);
+        if (packageInputRef.current) packageInputRef.current.value = "";
+      }
+    },
+    [load, t],
+  );
 
   const openEdit = useCallback(async (name: string) => {
     setEditor({
@@ -405,7 +478,29 @@ export default function SkillsSection() {
           </span>
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={packageInputRef}
+              type="file"
+              accept=".zip,.md,text/markdown,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                void handlePackageFile(e.target.files?.[0] ?? null);
+              }}
+            />
+            <button
+              type="button"
+              disabled={packageImporting}
+              onClick={() => packageInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:bg-[var(--muted)]/50 disabled:opacity-50"
+            >
+              {packageImporting ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Upload size={13} strokeWidth={1.9} />
+              )}
+              {packageImporting ? t("Importing…") : t("Import package")}
+            </button>
             <button
               onClick={() => setImportOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:bg-[var(--muted)]/50"
