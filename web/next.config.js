@@ -33,15 +33,19 @@ function normalizeBoolean(value) {
 /** This machine's non-loopback IPv4 addresses — the hosts `next dev` prints
  *  as "Network:", i.e. the ones a phone on the same WiFi actually types. */
 function localNetworkHosts() {
-  const hosts = [];
-  for (const addresses of Object.values(os.networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.family === "IPv4" && !address.internal) {
-        hosts.push(address.address);
+  try {
+    const hosts = [];
+    for (const addresses of Object.values(os.networkInterfaces())) {
+      for (const address of addresses ?? []) {
+        if (address.family === "IPv4" && !address.internal) {
+          hosts.push(address.address);
+        }
       }
     }
+    return hosts;
+  } catch {
+    return [];
   }
-  return hosts;
 }
 
 const SETTINGS_DIR = path.resolve(__dirname, "..", "data", "user", "settings");

@@ -10,7 +10,7 @@ import DistillMessageList, {
 import {
   listKnowledgeBases,
   type KnowledgeBaseSummary,
-} from "@/lib/knowledge-api";
+} from "@/features/knowledge/api/client";
 import {
   UnifiedWSClient,
   type StartTurnMessage,
