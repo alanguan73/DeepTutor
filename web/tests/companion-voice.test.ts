@@ -119,7 +119,7 @@ test("commitRecording transcribes then barge-ins with transcribed text", async (
   ]);
 });
 
-test("commitRecording does nothing when transcription is empty", async () => {
+test("commitRecording surfaces a retryable error and starts nothing when transcription is empty", async () => {
   let transcribed = 0;
   const { deps, log } = createDeps({
     transcribe: async () => {
@@ -129,9 +129,15 @@ test("commitRecording does nothing when transcription is empty", async () => {
   });
   const controller = new CompanionVoiceController(deps);
 
-  await controller.commitRecording(new Blob(["audio"]));
+  // The empty-transcription error is user-facing: the companion page catches
+  // it and shows it in the voice error banner.
+  await assert.rejects(
+    controller.commitRecording(new Blob(["audio"])),
+    /没有识别到有效语音/,
+  );
 
   assert.equal(transcribed, 1);
+  assert.equal(log.stopTts, 0);
   assert.equal(log.cancelTurn, 0);
   assert.deepEqual(log.startTurn, []);
 });

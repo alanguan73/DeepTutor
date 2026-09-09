@@ -10,7 +10,7 @@ export async function companionTranscribe(blob: Blob): Promise<string> {
       : "webm";
   form.append("file", blob, `companion.${ext}`);
   form.append("language", "zh");
-  const resp = await apiFetch(apiUrl("/api/v1/voice/stt"), {
+  const resp = await apiFetch(apiUrl("/api/voice/stt"), {
     method: "POST",
     body: form,
   });
@@ -28,7 +28,7 @@ export async function companionSynthesizeAndPlay(
   text: string,
   signal: AbortSignal,
 ): Promise<void> {
-  const resp = await apiFetch(apiUrl("/api/v1/voice/tts"), {
+  const resp = await apiFetch(apiUrl("/api/voice/tts"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),

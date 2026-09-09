@@ -381,7 +381,7 @@ export default function DistillPage() {
                 <p className="text-[11px] text-[var(--muted-foreground)]">
                   No knowledge bases yet. Create one on the{" "}
                   <Link
-                    href="/knowledge"
+                    href="/knowledge-bases"
                     className="underline hover:text-[var(--foreground)]"
                   >
                     Knowledge

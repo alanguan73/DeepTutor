@@ -161,7 +161,7 @@ export async function importSkillPackage(
   if (options?.extraTags?.length) {
     form.append("extra_tags", options.extraTags.join(","));
   }
-  const response = await apiFetch(apiUrl("/api/v1/skills/import-package"), {
+  const response = await apiFetch(apiUrl("/api/skills/import-package"), {
     method: "POST",
     body: form,
   });

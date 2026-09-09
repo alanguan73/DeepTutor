@@ -19,5 +19,19 @@ test("an empty search has no launch intent", () => {
   assert.deepEqual(readChatLaunchIntent(""), {
     capability: null,
     tools: [],
+    masteryPathId: null,
+    message: null,
   });
+});
+
+test("mastery path and message prefill fields are read from the URL", () => {
+  assert.deepEqual(
+    readChatLaunchIntent("?capability=mastery_path&mastery_path_id=p1&message=hi"),
+    {
+      capability: "mastery_path",
+      tools: [],
+      masteryPathId: "p1",
+      message: "hi",
+    },
+  );
 });

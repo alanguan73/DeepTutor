@@ -74,7 +74,7 @@ export async function fetchPsychDashboard(
   limits?: { emotion_limit?: number; session_limit?: number },
 ): Promise<PsychDashboardSummary> {
   const response = await apiFetch(
-    apiUrl("/api/v1/plugins/tools/psych_timeline_summary/execute"),
+    apiUrl("/api/plugins/tools/psych_timeline_summary/execute"),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
