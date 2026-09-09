@@ -10,7 +10,10 @@ import {
 } from "../lib/whisper-transcript";
 
 test("parseRoomIdFromContent extracts id from room_id=abc-123", () => {
-  assert.equal(parseRoomIdFromContent("join room_id=abc-123 please"), "abc-123");
+  assert.equal(
+    parseRoomIdFromContent("join room_id=abc-123 please"),
+    "abc-123",
+  );
   assert.equal(parseRoomIdFromContent("no room here"), null);
 });
 

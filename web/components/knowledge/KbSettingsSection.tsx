@@ -4,8 +4,11 @@ import { useTranslation } from "react-i18next";
 import { Star, Trash2 } from "lucide-react";
 import {
   formatKnowledgeTimestamp,
+  isMarginNoteKb,
+  providerUsesEmbeddingMetadata,
   type KnowledgeBase,
 } from "@/lib/knowledge-helpers";
+import LightRagIndexingProvenance from "./LightRagIndexingProvenance";
 
 interface KbSettingsSectionProps {
   kb: KnowledgeBase;
@@ -20,7 +23,15 @@ export default function KbSettingsSection({
 }: KbSettingsSectionProps) {
   const { t } = useTranslation();
   const meta = kb.metadata || {};
-  const provider = kb.statistics?.rag_provider || "llamaindex";
+  // A MarginNote library runs no engine and no embedding, and its `path` is
+  // a name rather than a folder that exists — reporting the ordinary fields
+  // described a pipeline and a directory it never has.
+  const isMarginNote = isMarginNoteKb(kb);
+  const provider = isMarginNote
+    ? t("MarginNote 4")
+    : kb.statistics?.rag_provider || "llamaindex";
+  const pageIndexProvider =
+    isMarginNote || !providerUsesEmbeddingMetadata(provider);
   const embeddingLabel = meta.embedding_model
     ? typeof meta.embedding_dim === "number"
       ? `${meta.embedding_model} · ${meta.embedding_dim}${t("d")}`
@@ -29,6 +40,12 @@ export default function KbSettingsSection({
   const created = formatKnowledgeTimestamp(meta.created_at);
   const updated = formatKnowledgeTimestamp(meta.last_updated);
   const lastIndexed = formatKnowledgeTimestamp(meta.last_indexed_at);
+  const publishedLightRagVersion =
+    provider === "lightrag"
+      ? kb.statistics?.index_versions?.find(
+          (version) => version.provider === "lightrag" && version.ready,
+        )
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -44,19 +61,43 @@ export default function KbSettingsSection({
 
         <dl className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 sm:grid-cols-2">
           <Field label={t("RAG provider")}>{provider}</Field>
-          <Field label={t("Embedding")}>{embeddingLabel}</Field>
+          {!pageIndexProvider && (
+            <Field label={t("Embedding")}>{embeddingLabel}</Field>
+          )}
           <Field label={t("Created")}>{created || "—"}</Field>
           <Field label={t("Updated")}>{updated || "—"}</Field>
-          <Field label={t("Last indexed")}>{lastIndexed || "—"}</Field>
-          {kb.path && (
-            <Field label={t("On-disk path")} className="sm:col-span-2">
-              <span className="font-mono text-[10.5px] text-[var(--muted-foreground)]">
-                {kb.path}
-              </span>
-            </Field>
+          {!isMarginNote && (
+            <Field label={t("Last indexed")}>{lastIndexed || "—"}</Field>
           )}
+          {isMarginNote
+            ? meta.db_path && (
+                <Field label={t("Synced store")} className="sm:col-span-2">
+                  <span className="font-mono text-[10.5px] text-[var(--muted-foreground)]">
+                    {meta.db_path}
+                  </span>
+                </Field>
+              )
+            : kb.path && (
+                <Field label={t("On-disk path")} className="sm:col-span-2">
+                  <span className="font-mono text-[10.5px] text-[var(--muted-foreground)]">
+                    {kb.path}
+                  </span>
+                </Field>
+              )}
         </dl>
       </section>
+
+      {provider === "lightrag" && (
+        <section className="space-y-3">
+          <div className="text-[13px] font-medium text-[var(--foreground)]">
+            {t("Indexing model provenance")}
+          </div>
+          <LightRagIndexingProvenance
+            policy={meta.indexing_policy}
+            version={publishedLightRagVersion}
+          />
+        </section>
+      )}
 
       <section className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
         <div>
@@ -90,9 +131,13 @@ export default function KbSettingsSection({
             {t("Danger zone")}
           </div>
           <p className="mt-0.5 text-[11.5px] text-red-700/80 dark:text-red-300/80">
-            {t(
-              "Deleting a knowledge base permanently removes its raw documents and index versions.",
-            )}
+            {isMarginNote
+              ? t(
+                  "Deleting this library removes its synced objects and unpairs every device. Nothing in MarginNote 4 itself is touched.",
+                )
+              : t(
+                  "Deleting a knowledge base permanently removes its raw documents and index versions.",
+                )}
           </p>
         </div>
         <button

@@ -7,8 +7,8 @@ import {
 import type {
   MessageItem,
   MessageRequestSnapshot,
-} from "../context/UnifiedChatContext";
-import type { StreamEvent } from "../lib/unified-ws";
+} from "../features/chat/ChatStateAdapter";
+import type { StreamEvent } from "../features/chat/model/protocol";
 
 /** A StreamEvent with only the fields the fold reads set explicitly. */
 function event(
@@ -54,7 +54,7 @@ const UPLOAD = {
   type: "document",
   filename: "syllabus.pdf",
   id: "att-1",
-  url: "/api/attachments/att-1/syllabus.pdf",
+  url: "/files/attachments/att-1/syllabus.pdf",
 };
 
 const ARTIFACT = {
@@ -62,7 +62,7 @@ const ARTIFACT = {
   filename: "summary.pptx",
   generated: true,
   size_bytes: 24_576,
-  url: "/api/outputs/workspace/chat/chat/turn_1/exec/summary.pptx",
+  url: "/files/outputs/workspace/chat/chat/turn_1/exec/summary.pptx",
 };
 
 /* ------------------------------------------------------------------ */
@@ -164,6 +164,41 @@ test("dedupes knowledge bases across turns", () => {
   assert.deepEqual(activity.knowledgeBases, ["KB"]);
 });
 
+test("hides deleted knowledge bases when an available set is given", () => {
+  const activity = buildSessionActivity(
+    messages({
+      role: "user",
+      requestSnapshot: snapshot({ knowledgeBases: ["gone", "alive"] }),
+    }),
+    { availableKbNames: new Set(["alive"]) },
+  );
+
+  assert.deepEqual(activity.knowledgeBases, ["alive"]);
+});
+
+test("hides every stale knowledge base when the confirmed set is empty", () => {
+  const activity = buildSessionActivity(
+    messages({
+      role: "user",
+      requestSnapshot: snapshot({ knowledgeBases: ["last-deleted-kb"] }),
+    }),
+    { availableKbNames: new Set() },
+  );
+
+  assert.deepEqual(activity.knowledgeBases, []);
+});
+
+test("keeps knowledge bases when availability could not be loaded", () => {
+  const activity = buildSessionActivity(
+    messages({
+      role: "user",
+      requestSnapshot: snapshot({ knowledgeBases: ["unconfirmed"] }),
+    }),
+  );
+
+  assert.deepEqual(activity.knowledgeBases, ["unconfirmed"]);
+});
+
 /* ------------------------------------------------------------------ */
 /*  artifactDiskPath                                                   */
 /* ------------------------------------------------------------------ */
@@ -178,14 +213,14 @@ test("derives the data-root-relative path from an outputs URL", () => {
 test("decodes percent-escaped segments", () => {
   assert.equal(
     artifactDiskPath(
-      "/api/outputs/workspace/chat/chat/t/exec/%E6%8A%A5%E5%91%8A.pptx",
+      "/files/outputs/workspace/chat/chat/t/exec/%E6%8A%A5%E5%91%8A.pptx",
     ),
     "workspace/chat/chat/t/exec/报告.pptx",
   );
 });
 
 test("falls back to the raw form on a malformed escape", () => {
-  assert.equal(artifactDiskPath("/api/outputs/bad%zz.pptx"), "bad%zz.pptx");
+  assert.equal(artifactDiskPath("/files/outputs/bad%zz.pptx"), "bad%zz.pptx");
 });
 
 test("returns null for uploads and for missing URLs", () => {

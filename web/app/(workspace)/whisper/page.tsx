@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Ear, Loader2 } from "lucide-react";
 import WhisperComposer from "@/components/whisper/WhisperComposer";
 import WhisperMessageList from "@/components/whisper/WhisperMessageList";
 import WhisperRoomChip from "@/components/whisper/WhisperRoomChip";
-import {
-  UnifiedWSClient,
-  type StartTurnMessage,
-  type StreamEvent,
-} from "@/lib/unified-ws";
+import { useCapabilityFilter } from "@/features/capabilities/useCapabilityCatalog";
+import type {
+  StartTurnMessage,
+  StreamEvent,
+} from "@/features/chat/model/protocol";
+import { UnifiedTurnClient } from "@/features/chat/transport/UnifiedTurnClient";
 import {
   filterMessagesForSeat,
   looksLikeCrisisRedirect,
@@ -36,6 +38,7 @@ function looksLikeRoomEnded(text: string): boolean {
 }
 
 export default function WhisperPage() {
+  const { t } = useTranslation();
   const [seat, setSeat] = useState<WhisperSeat>("visitor");
   const [roomId, setRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WhisperMessage[]>([]);
@@ -47,7 +50,7 @@ export default function WhisperPage() {
   const [connected, setConnected] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
 
-  const clientRef = useRef<UnifiedWSClient | null>(null);
+  const clientRef = useRef<UnifiedTurnClient | null>(null);
   const seatRef = useRef<WhisperSeat>(seat);
   const roomIdRef = useRef<string | null>(roomId);
   const sessionBySeatRef = useRef<Record<WhisperSeat, string | null>>({
@@ -134,15 +137,17 @@ export default function WhisperPage() {
   }, []);
 
   useEffect(() => {
-    const client = new UnifiedWSClient(handleEvent, () => {
+    const client = new UnifiedTurnClient(handleEvent, () => {
       setBusy(false);
       setConnected(false);
     });
     clientRef.current = client;
-    setConnected(false);
+    // No reset needed here: `connected` starts false and the client's onClose
+    // above owns clearing it. Setting it synchronously in the effect only
+    // cascaded a render.
     client.connect();
 
-    // Poll readyState until open (UnifiedWSClient has no onOpen hook).
+    // Poll the adapter state until the validated v2 runtime is connected.
     const poll = window.setInterval(() => {
       if (client.connected) {
         setConnected(true);
@@ -277,19 +282,46 @@ export default function WhisperPage() {
 
   const canNewRoom = Boolean(roomId || roomClosed || crisisHit);
 
+  // Whisper's seats are served by the out-of-tree psych-academy capability, not
+  // by this repository. Where it was never installed every send comes back as
+  // `Unknown capability: whisper_visitor` (#963), so say so here rather than
+  // letting the learner find out one message in. Still loading (`null`) renders
+  // the room as usual, so an install that does have the plugin never waits.
+  const capabilityAvailable = useCapabilityFilter();
+  if (capabilityAvailable && !capabilityAvailable("whisper_visitor")) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center px-6">
+        <div className="max-w-md text-center">
+          <Ear
+            className="mx-auto h-6 w-6 text-[var(--muted-foreground)]"
+            aria-hidden
+          />
+          <h1 className="mt-3 text-sm font-medium text-[var(--foreground)]">
+            {t("Whisper is not installed on this server")}
+          </h1>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--muted-foreground)]">
+            {t(
+              "The practice room runs on a separate capability plugin that this deployment does not have. Ask your administrator to install it to use this page.",
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
             <Ear className="h-4 w-4 text-[var(--primary)]" aria-hidden />
-            Whisper
+            {t("Whisper")}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
-            Dual-seat supervision · seat switch (not split-screen)
+            {t("Dual-seat supervision · seat switch (not split-screen)")}
             {dtSessionId ? (
               <span className="ml-2 font-mono opacity-70">
-                session {dtSessionId.slice(0, 8)}…
+                {t("Session {{id}}", { id: `${dtSessionId.slice(0, 8)}…` })}
               </span>
             ) : null}
           </p>
@@ -303,11 +335,11 @@ export default function WhisperPage() {
             disabled={!canNewRoom}
             className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--ring)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            New room
+            {t("New room")}
           </button>
           <div
             role="tablist"
-            aria-label="Seat"
+            aria-label={t("Seat")}
             className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--background)] p-0.5"
           >
             {(["visitor", "trainee"] as const).map((value) => {
@@ -325,7 +357,7 @@ export default function WhisperPage() {
                       : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {value}
+                  {value === "visitor" ? t("visitor") : t("trainee")}
                 </button>
               );
             })}
@@ -333,7 +365,7 @@ export default function WhisperPage() {
           {!connected && (
             <span className="inline-flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
               <Loader2 className="h-3 w-3 animate-spin" />
-              {everConnected ? "Reconnecting…" : "Connecting…"}
+              {everConnected ? t("Reconnecting…") : t("Connecting…")}
             </span>
           )}
         </div>
@@ -345,9 +377,9 @@ export default function WhisperPage() {
           className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-800 dark:text-amber-200"
         >
           {crisisHit
-            ? "Crisis redirect detected. Sending is disabled for this room."
-            : "This whisper room has ended. Sending is disabled."}{" "}
-          You can still copy the room id.
+            ? t("Crisis redirect detected. Sending is disabled for this room.")
+            : t("This whisper room has ended. Sending is disabled.")}{" "}
+          {t("You can still copy the room id.")}
         </div>
       )}
 
@@ -356,11 +388,14 @@ export default function WhisperPage() {
           role="status"
           className="border-b border-[var(--border)] bg-[var(--background)] px-4 py-2 text-xs text-[var(--muted-foreground)]"
         >
-          Open the room as Visitor first.
+          {t("Open the room as Visitor first.")}
         </div>
       )}
 
-      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollerRef}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
         <div className="mx-auto w-full max-w-3xl">
           <WhisperMessageList messages={visibleMessages} seat={seat} />
         </div>

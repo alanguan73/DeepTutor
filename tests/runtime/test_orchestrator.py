@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
+from deeptutor.core.capability_protocol import CapabilityManifest, TurnCapability
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
-from deeptutor.core.stream_bus import StreamBus
 from deeptutor.runtime.orchestrator import ChatOrchestrator
+from deeptutor.runtime.stream_bus import StreamBus
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def _patch_event_bus():
 # ---------------------------------------------------------------------------
 
 
-class _EchoCapability(BaseCapability):
+class _EchoCapability(TurnCapability):
     """Minimal capability that echoes the user message."""
 
     manifest = CapabilityManifest(
@@ -44,7 +44,7 @@ class _EchoCapability(BaseCapability):
         await stream.content(context.user_message, source=self.name)
 
 
-class _FailingCapability(BaseCapability):
+class _FailingCapability(TurnCapability):
     """Capability that raises."""
 
     manifest = CapabilityManifest(name="fail", description="Always fails.")
@@ -54,7 +54,7 @@ class _FailingCapability(BaseCapability):
 
 
 def _make_orchestrator(
-    capabilities: dict[str, BaseCapability] | None = None,
+    capabilities: dict[str, TurnCapability] | None = None,
 ) -> ChatOrchestrator:
     """Build an orchestrator with fake registries."""
     cap_reg = MagicMock()
@@ -257,7 +257,7 @@ class TestOrchestratorHelpers:
 
 
 class TestCompletionEventFields:
-    def test_reads_agent_output_and_merges_metadata(self) -> None:
+    def test_reads_agent_output_and_declared_event_metadata(self) -> None:
         from deeptutor.runtime.orchestrator import completion_event_fields
 
         ctx = UnifiedContext(
@@ -266,7 +266,7 @@ class TestCompletionEventFields:
             metadata={
                 "agent_output": "## Debrief\nNice work.",
                 "turn_id": "turn-9",
-                "practice_trace": "keep-me",
+                "event_metadata": {"practice_trace": "keep-me"},
             },
         )
         output, meta = completion_event_fields(ctx, "echo")
@@ -275,18 +275,43 @@ class TestCompletionEventFields:
         assert meta["session_id"] == "sess-1"
         assert meta["turn_id"] == "turn-9"
         assert meta["practice_trace"] == "keep-me"
-        assert meta["agent_output"] == "## Debrief\nNice work."
 
-    def test_capability_and_ids_override_stashed_keys(self) -> None:
+    def test_turn_scratchpad_is_not_published(self) -> None:
+        """Only the declared sub-dict reaches the bus.
+
+        Turn metadata holds live callables and the user's own answers; the
+        EventBus fans out to the Partner channels, and a JSON-serialising
+        subscriber cannot encode a function anyway.
+        """
+        from deeptutor.runtime.orchestrator import completion_event_fields
+
+        ctx = UnifiedContext(
+            user_message="hi",
+            session_id="sess-1",
+            metadata={
+                "wait_for_user_reply": lambda: None,
+                "ask_user_answers": [{"questionId": "q1", "text": "private"}],
+                "event_metadata": {"room_id": "room-7"},
+            },
+        )
+        _, meta = completion_event_fields(ctx, "whisper")
+        assert meta["room_id"] == "room-7"
+        assert "wait_for_user_reply" not in meta
+        assert "ask_user_answers" not in meta
+
+    def test_capability_and_ids_cannot_be_spoofed(self) -> None:
         from deeptutor.runtime.orchestrator import completion_event_fields
 
         ctx = UnifiedContext(
             user_message="hi",
             session_id="real-session",
             metadata={
-                "capability": "spoofed",
-                "session_id": "spoofed-session",
                 "turn_id": "t1",
+                "event_metadata": {
+                    "capability": "spoofed",
+                    "session_id": "spoofed-session",
+                    "turn_id": "spoofed-turn",
+                },
             },
         )
         _, meta = completion_event_fields(ctx, "echo")
@@ -294,11 +319,21 @@ class TestCompletionEventFields:
         assert meta["session_id"] == "real-session"
         assert meta["turn_id"] == "t1"
 
+    def test_non_dict_event_metadata_is_ignored(self) -> None:
+        from deeptutor.runtime.orchestrator import completion_event_fields
+
+        ctx = UnifiedContext(
+            user_message="hi",
+            session_id="s",
+            metadata={"event_metadata": "not-a-dict"},
+        )
+        _, meta = completion_event_fields(ctx, "chat")
+        assert meta == {"capability": "chat", "session_id": "s", "turn_id": ""}
+
     def test_empty_agent_output_when_unset(self) -> None:
         from deeptutor.runtime.orchestrator import completion_event_fields
 
         ctx = UnifiedContext(user_message="hi", session_id="s", metadata={})
         output, meta = completion_event_fields(ctx, "chat")
         assert output == ""
-        assert meta["capability"] == "chat"
-        assert "agent_output" not in meta or meta.get("agent_output") in (None, "")
+        assert "agent_output" not in meta

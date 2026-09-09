@@ -156,8 +156,51 @@ export interface ReadingSummary {
   percent: number;
 }
 
+export interface SourceQuality {
+  status: "ready" | "warning" | "failed";
+  requested_kbs: string[];
+  covered_kbs: string[];
+  missing_kbs: string[];
+  coverage: Record<string, number>;
+  chunk_count: number;
+  warnings: string[];
+}
+
+export interface GenerationOverview {
+  status: BookStatus;
+  can_resume: boolean;
+  pause_reason: string;
+  source_quality: SourceQuality | null;
+  /** Something in the backend is compiling this book right now. */
+  working?: boolean;
+  /**
+   * Stored status says `compiling` but no worker is behind it — the process
+   * that was writing this book is gone. Distinct from `paused`, which the
+   * reader or the failure breaker asked for.
+   */
+  interrupted?: boolean;
+  /**
+   * Epoch seconds the current compile run began, stamped by the engine so
+   * every viewer's clock agrees and survives a reload. 0 when none started.
+   */
+  started_at?: number;
+}
+
+export interface GenerationSummary extends GenerationOverview {
+  book_id: string;
+  pages: Record<string, number> & { total: number };
+  failed_blocks: number;
+  /** Chapters that need the reader to act: failed, plus owed-but-abandoned. */
+  retryable_pages: number;
+  /** Chapters still owed work. Only a problem when nothing is working. */
+  queued_pages?: number;
+  failed_pages?: number;
+  failure_categories: Record<string, number>;
+}
+
 export interface Book {
   id: string;
+  revision: number;
   title: string;
   description: string;
   status: BookStatus;
@@ -173,9 +216,17 @@ export interface Book {
     page_chat_sessions?: Record<string, string>;
     /** Why compilation paused — set alongside `status: "paused"`. */
     pause_reason?: string;
+    /** Whether the user paused it or the provider-failure breaker did. */
+    pause_kind?: "user" | "provider";
   };
   /** Present on list responses only. */
   reading?: ReadingSummary;
+  /** Permission-aware fields attached by Book APIs. */
+  source?: "own" | "shared";
+  permission?: "none" | "read" | "edit";
+  can_edit?: boolean;
+  can_delete?: boolean;
+  generation?: GenerationOverview;
 }
 
 export interface QuizAttempt {
@@ -186,6 +237,36 @@ export interface QuizAttempt {
   /** `null` when a written answer was revealed but never self-graded. */
   is_correct: boolean | null;
   timestamp: number;
+}
+
+export type LearningCaptureStatus =
+  | "captured"
+  | "drafted"
+  | "pending_confirmation"
+  | "approved"
+  | "delivered"
+  | "imported"
+  | "rejected";
+
+export interface LearningCapture {
+  id: string;
+  book_id: string;
+  page_id: string;
+  block_id: string;
+  capture_type: string;
+  source_text: string;
+  context_before: string;
+  context_after: string;
+  source_locator: string;
+  book_title: string;
+  chapter_title: string;
+  user_note: string;
+  content_hash: string;
+  status: LearningCaptureStatus;
+  version: number;
+  rejected_reason: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Progress {
@@ -204,4 +285,5 @@ export interface BookDetail {
   spine: Spine | null;
   pages: Page[];
   progress: Progress;
+  generation: GenerationSummary;
 }

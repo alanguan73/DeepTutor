@@ -302,9 +302,11 @@ class CitationManager:
         try:
             tool_type_lower = tool_type.lower()
 
-            if tool_type_lower in ("rag", "rag_naive", "rag_hybrid"):
+            if tool_type_lower in ("rag", "rag_naive", "rag_hybrid") or tool_type_lower.startswith(
+                ("pageindex_cloud_", "pageindex_oss_")
+            ):
                 citation_info = self._extract_rag_citation(
-                    citation_id, "rag", raw_answer, tool_trace, tool_metadata
+                    citation_id, tool_type, raw_answer, tool_trace, tool_metadata
                 )
             elif tool_type_lower == "web_search":
                 citation_info = self._extract_web_citation(
@@ -314,7 +316,7 @@ class CitationManager:
                 citation_info = self._extract_paper_citation(
                     citation_id, tool_type, raw_answer, tool_trace, tool_metadata
                 )
-            elif tool_type_lower == "run_code":
+            elif tool_type_lower == "exec":
                 citation_info = self._extract_code_citation(citation_id, tool_type, tool_trace)
             else:
                 # Unknown tool type, use generic format
@@ -603,7 +605,7 @@ class CitationManager:
         if tool_type == "web_search":
             return self._format_web_search_with_links(citation)
 
-        tool_type_display = {"run_code": "Code Execution"}.get(tool_type, tool_type)
+        tool_type_display = {"exec": "Code Execution"}.get(tool_type, tool_type)
         query = html.escape(str(citation.get("query", "")))
         return f"{html.escape(str(tool_type_display))}: {query}"
 

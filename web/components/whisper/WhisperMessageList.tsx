@@ -1,6 +1,7 @@
 "use client";
 
 import { Lock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import type { WhisperMessage, WhisperSeat } from "@/lib/whisper-transcript";
 
@@ -30,7 +31,9 @@ function showSource(source?: string): boolean {
   return source !== "whisper_visitor" && source !== "whisper_trainee";
 }
 
-function useMarkdown(msg: WhisperMessage): boolean {
+// A plain predicate, not a React hook. Under a `use` prefix it read as one, and
+// calling it inside the map below tripped react-hooks/rules-of-hooks.
+function rendersMarkdown(msg: WhisperMessage): boolean {
   return msg.role !== "user" && msg.role !== "system";
 }
 
@@ -38,31 +41,42 @@ export default function WhisperMessageList({
   messages,
   seat,
 }: WhisperMessageListProps) {
+  const { t } = useTranslation();
+
   if (messages.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--background)]/50 p-4 text-xs leading-6 text-[var(--muted-foreground)]">
         <p className="mb-2 font-medium text-[var(--foreground)]">
-          Dual-seat whisper — 3 steps
+          {t("Dual-seat whisper — 3 steps")}
         </p>
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>
-            <span className="font-medium text-[var(--foreground)]">Visitor:</span>{" "}
-            send the first message → you get a{" "}
-            <code className="rounded bg-[var(--muted)] px-1">room_id</code>.
+            <span className="font-medium text-[var(--foreground)]">
+              {t("Visitor")}:
+            </span>{" "}
+            {t("send the first message to get a room id.")}
           </li>
           <li>
-            <span className="font-medium text-[var(--foreground)]">Trainee:</span>{" "}
-            switch seats and send counselor lines. Private notes show with a lock.
+            <span className="font-medium text-[var(--foreground)]">
+              {t("Trainee")}:
+            </span>{" "}
+            {t(
+              "switch seats and send counselor lines. Private notes show with a lock.",
+            )}
           </li>
           <li>
-            <span className="font-medium text-[var(--foreground)]">结束:</span>{" "}
-            on Trainee, end the room for a debrief.
+            <span className="font-medium text-[var(--foreground)]">
+              {t("End session")}:
+            </span>{" "}
+            {t("on Trainee, end the room for a debrief.")}
           </li>
         </ol>
         <p className="mt-3 opacity-80">
           {seat === "visitor"
-            ? "You are on Visitor — start with step 1."
-            : "You are on Trainee — complete step 1 as Visitor first if there is no room yet."}
+            ? t("You are on Visitor — start with step 1.")
+            : t(
+                "You are on Trainee — complete step 1 as Visitor first if there is no room yet.",
+              )}
         </p>
       </div>
     );
@@ -85,7 +99,7 @@ export default function WhisperMessageList({
           >
             <div
               className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-6 ${bubbleClass(msg)} ${
-                useMarkdown(msg) ? "" : "whitespace-pre-wrap"
+                rendersMarkdown(msg) ? "" : "whitespace-pre-wrap"
               }`}
             >
               {showMeta && (
@@ -93,15 +107,19 @@ export default function WhisperMessageList({
                   {isWhisper && (
                     <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
                       <Lock className="h-3 w-3" aria-hidden />
-                      whisper
+                      {t("whisper")}
                     </span>
                   )}
                   {metaStage && <span>{metaStage}</span>}
                   {metaSource && <span>· {metaSource}</span>}
-                  {msg.localSeat && <span>· you ({msg.localSeat})</span>}
+                  {msg.localSeat && (
+                    <span>
+                      · {t("you")} ({msg.localSeat})
+                    </span>
+                  )}
                 </div>
               )}
-              {useMarkdown(msg) ? (
+              {rendersMarkdown(msg) ? (
                 <MarkdownRenderer
                   content={msg.text}
                   variant="compact"

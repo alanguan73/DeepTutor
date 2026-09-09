@@ -21,7 +21,8 @@ export function filterMessagesForSeat(
   if (seat === "trainee") return messages;
   return messages.filter((msg) => {
     if (msg.stage === "whisper") return false;
-    if (msg.source === "whisper_trainee" && msg.stage === "debrief") return false;
+    if (msg.source === "whisper_trainee" && msg.stage === "debrief")
+      return false;
     return true;
   });
 }

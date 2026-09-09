@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { loadPdfjs, type PdfDocument } from "@/lib/pdfjs-loader";
-import type { AnnotationItem, NormalisedRect } from "@/lib/reading-api";
+import type {
+  AnnotationItem,
+  NormalisedRect,
+  ReadingTextSelector,
+} from "@/lib/reading-api";
 import { rawMaterialUrl } from "@/lib/reading-api";
 import { domRangeForQuote } from "@/lib/reading-quote-locator";
 import {
@@ -23,6 +27,8 @@ export interface SelectionPayload {
   locator: number;
   quote: string;
   rects: NormalisedRect[];
+  sourceAnchor?: string;
+  selectors?: ReadingTextSelector[];
   /** Viewport coordinates of the selection, for popover placement. */
   anchor: { x: number; y: number };
 }
@@ -182,13 +188,17 @@ export function PdfDocumentView({
       for (const page of pages) {
         const rect = page.getBoundingClientRect();
         const covered =
-          Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top);
+          Math.min(rect.bottom, rootRect.bottom) -
+          Math.max(rect.top, rootRect.top);
         if (covered <= 0) continue;
         const locator = Number(page.dataset.readerUnit ?? "0");
         if (!locator) continue;
         if (!best || covered > best.covered) best = { locator, covered };
       }
-      if (best) setVisibleLocator((current) => (current === best.locator ? current : best.locator));
+      if (best)
+        setVisibleLocator((current) =>
+          current === best.locator ? current : best.locator,
+        );
     };
 
     const onScroll = () => {
@@ -219,7 +229,8 @@ export function PdfDocumentView({
    */
   const isActive = useCallback(
     (locator: number) => {
-      const near = (anchor: number) => Math.abs(locator - anchor) <= RENDER_MARGIN;
+      const near = (anchor: number) =>
+        Math.abs(locator - anchor) <= RENDER_MARGIN;
       return near(visibleLocator) || (jump ? near(jump.locator) : false);
     },
     [visibleLocator, jump],
@@ -321,7 +332,8 @@ export function PdfDocumentView({
   // superseded by derivation — no timer, and no way for a stale highlight to
   // outlive the request behind it. The mark itself persists until then; see the
   // `dt-reader-flash` rules for why it does not fade out.
-  const activeFlash = flash && jump && flash.nonce === jump.nonce ? flash : null;
+  const activeFlash =
+    flash && jump && flash.nonce === jump.nonce ? flash : null;
 
   // -- selection -----------------------------------------------------------
 
@@ -398,7 +410,12 @@ export function PdfDocumentView({
     <div
       ref={scrollRef}
       onMouseUp={handlePointerUp}
-      className="dt-reader-scroll h-full overflow-y-auto overscroll-contain bg-[var(--muted)]/40 px-6 py-4"
+      // The desk the pages lie on. This was `bg-[var(--muted)]/40`, which
+      // compiles to nothing here — a var() colour has no channels for the
+      // `/NN` modifier to reach into, so the rule was dropped and the desk
+      // rendered the same white as the paper on it. `--secondary` is the
+      // token for exactly this: one step back from the page.
+      className="dt-reader-scroll h-full overflow-y-auto overscroll-contain bg-[var(--secondary)] px-6 py-4"
     >
       {!doc ? (
         <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--muted-foreground)]">
@@ -419,7 +436,9 @@ export function PdfDocumentView({
                 annotations={annotations}
                 highlightedAnnotationId={highlightedAnnotationId}
                 flashRects={
-                  activeFlash?.locator === locator ? activeFlash.rects : undefined
+                  activeFlash?.locator === locator
+                    ? activeFlash.rects
+                    : undefined
                 }
                 onAnnotationClick={onAnnotationClick}
               />

@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RefreshCw, Upload } from "lucide-react";
-import type { KnowledgeUploadPolicy } from "@/lib/knowledge-api";
+import { FolderInput, Loader2, RefreshCw, Upload } from "lucide-react";
 import {
-  kbIsUploadable,
+  listKnowledgeBaseFiles,
+  type KnowledgeUploadPolicy,
+} from "@/features/knowledge/api/files";
+import {
+  kbCanUploadDocuments,
   kbNeedsReindex,
+  kbRequiresLightRagRebuildBeforeAppend,
+  providerUsesEmbeddingMetadata,
   resolveKbStatus,
   resolveProgressPercent,
+  uploadPolicyForProvider,
   validateFiles,
   type KnowledgeBase,
 } from "@/lib/knowledge-helpers";
@@ -18,6 +24,7 @@ import ProcessLogs from "@/components/common/ProcessLogs";
 import FileDropZone from "./FileDropZone";
 import KbIndexFailureBanner from "./KbIndexFailureBanner";
 import KbUpdateHistory from "./KbUpdateHistory";
+import LightRagIndexingProvenance from "./LightRagIndexingProvenance";
 
 interface KbDocumentsSectionProps {
   kb: KnowledgeBase;
@@ -26,7 +33,7 @@ interface KbDocumentsSectionProps {
   history: HistoryEntry[];
   onClearHistory: () => void;
   onRetry?: () => Promise<void>;
-  onUpload: (files: File[]) => Promise<void>;
+  onUpload: (files: File[], destSubdir?: string) => Promise<void>;
 }
 
 /**
@@ -48,11 +55,45 @@ export default function KbDocumentsSection({
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [retrySubmitting, setRetrySubmitting] = useState(false);
+  // Existing folders in this KB, offered as a destination for the batch.
+  const [folders, setFolders] = useState<string[]>([]);
+  const [destSubdir, setDestSubdir] = useState("");
 
-  const uploadable = kbIsUploadable(kb);
+  useEffect(() => {
+    let cancelled = false;
+    void listKnowledgeBaseFiles(kb.name)
+      .then((entries) => {
+        if (cancelled) return;
+        setFolders(
+          entries
+            .filter((entry) => entry.type === "folder")
+            .map((entry) => entry.name)
+            .sort((a, b) => a.localeCompare(b)),
+        );
+      })
+      .catch(() => {
+        // A destination picker is an optional convenience; failing to list
+        // folders just means the batch goes to the root as it always did.
+        if (!cancelled) setFolders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kb.name]);
+
   const needsReindex = kbNeedsReindex(kb);
+  const requiresLightRagRebuild = kbRequiresLightRagRebuildBeforeAppend(kb);
   const status = resolveKbStatus(kb);
   const isError = status === "error";
+  const provider =
+    kb.statistics?.rag_provider || kb.metadata?.rag_provider || "llamaindex";
+  const policyForProvider = uploadPolicyForProvider(uploadPolicy, provider);
+  const publishedLightRagVersion =
+    provider === "lightrag"
+      ? kb.statistics?.index_versions?.find(
+          (version) => version.provider === "lightrag" && version.ready,
+        )
+      : undefined;
 
   const isUploadingHere = task?.kind === "upload" && task.executing;
   const isIndexingHere =
@@ -63,22 +104,28 @@ export default function KbDocumentsSection({
   // (Files tab) and upload replacements here, instead of being forced to
   // delete and rebuild the whole base. Uploads stay open unless a rebuild is
   // actively running; legacy/transition states remain genuinely blocked.
-  const canUpload = uploadable || (isError && !isIndexingHere);
+  const canUpload = kbCanUploadDocuments(kb, isIndexingHere);
 
   const blockedReason = canUpload
     ? null
-    : needsReindex
+    : requiresLightRagRebuild
       ? t(
-          "This knowledge base is in legacy index format and needs reindex before upload.",
+          "This legacy LightRAG index remains queryable, but it must be fully rebuilt before incremental uploads.",
         )
-      : status !== "ready"
+      : needsReindex
         ? t(
-            "This knowledge base is currently {{status}} and cannot accept uploads yet.",
-            { status: status.replaceAll("_", " ") },
+            "This knowledge base is in legacy index format and needs reindex before upload.",
           )
-        : null;
+        : status !== "ready"
+          ? t(
+              "This knowledge base is currently {{status}} and cannot accept uploads yet.",
+              {
+                status: status.replaceAll("_", " "),
+              },
+            )
+          : null;
 
-  const selection = validateFiles(files, uploadPolicy, t);
+  const selection = validateFiles(files, policyForProvider, t);
   const canRetry = Boolean(onRetry) && isError && !isIndexingHere;
   // Unsupported files are skipped (shown in the drop zone), not blocking, so a
   // picked folder with mixed content still uploads its supported members.
@@ -92,7 +139,7 @@ export default function KbDocumentsSection({
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      await onUpload(selection.validFiles);
+      await onUpload(selection.validFiles, destSubdir || undefined);
       setFiles([]);
     } finally {
       setSubmitting(false);
@@ -132,10 +179,20 @@ export default function KbDocumentsSection({
         </div>
         <p className="mt-0.5 text-[11.5px] text-[var(--muted-foreground)]">
           {t(
-            "Drop files here to add them to this knowledge base. New files are indexed against the active embedding model.",
+            providerUsesEmbeddingMetadata(provider)
+              ? "Drop files here to add them to this knowledge base. New files are indexed against the active embedding model."
+              : "Drop files here",
           )}
         </p>
       </div>
+
+      {provider === "lightrag" && (
+        <LightRagIndexingProvenance
+          policy={kb.metadata?.indexing_policy}
+          version={publishedLightRagVersion}
+          compact
+        />
+      )}
 
       {blockedReason && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
@@ -171,9 +228,29 @@ export default function KbDocumentsSection({
       <FileDropZone
         files={files}
         onChange={setFiles}
-        uploadPolicy={uploadPolicy}
+        uploadPolicy={policyForProvider}
         disabled={!canUpload || isUploadingHere}
       />
+
+      {folders.length > 0 && files.length > 0 && (
+        <label className="flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">
+          <FolderInput size={13} strokeWidth={1.7} />
+          <span>{t("Add to folder")}</span>
+          <select
+            value={destSubdir}
+            onChange={(event) => setDestSubdir(event.target.value)}
+            disabled={!canUpload || isUploadingHere}
+            className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-[12px] text-[var(--foreground)] disabled:opacity-40"
+          >
+            <option value="">{t("Knowledge base root")}</option>
+            {folders.map((folder) => (
+              <option key={folder} value={folder}>
+                {folder}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="flex items-center justify-end">
         <button

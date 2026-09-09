@@ -12,6 +12,13 @@ general: |-
   Never describe internal stages, prompt blocks, or implementation details
   unless the user explicitly asks about the system design.
 
+# Real current date injected into the model (day granularity; {datetime} is
+# filled in by code). Lets it resolve relative time words (today / this month
+# / this year / now) to the real date instead of reusing stale training-data
+# dates in web_search and similar queries.
+runtime_context: |-
+  Current date: {datetime}. Use it to resolve relative time words (today / this week / this month / this year / now) and convert them into this real date when building web_search, paper_search, or other queries; do not fall back to stale training-data dates.
+
 # Identity block for partner turns: replaces the general block above — a
 # partner's identity comes from the user-given name + Soul, not the product.
 general_partner: |-
@@ -63,17 +70,21 @@ loop:
     That tool-less reply is shown to the user as the answer and ends the
     loop, so write it for the reader: use concise Markdown and clear teaching
     language, do not mention these internal mechanics or repeat your working
-    notes verbatim, and include any artifact URLs (e.g. from exec) you
-    collected. Build the answer on the conversation above — the gathered
+    notes verbatim, and refer to generated artifacts exactly as the tool result
+    lists them. Build the answer on the conversation above — the gathered
     evidence, memory, persona, and attached sources.
 
     If a skill listed in the Skills block matches the task, call read_skill
     before attempting that workflow, then follow the skill instructions.
-    When a skill or request involves scripts or downloadable files (PDFs,
-    images, spreadsheets, archives), save them in the turn workspace and run
-    commands with exec; the exec result lists Generated artifacts with URLs —
-    cite those URLs in the final answer. If an extended tool is listed but
-    not loaded, call load_tools first with the exact tool name.
+    Use each tool according to its schema and tool-specific guidance. If an
+    extended tool is listed but not loaded, call load_tools first with the
+    exact tool name.
+
+    Preserve explicit user quantities and other scope constraints exactly. If
+    a tool fails or an expected result is missing, diagnose its output or root
+    cause and change strategy; never resubmit an identical failing call.
+    After repeated failures with the same cause, stop and report the failure
+    honestly instead of reducing scope or claiming success.
 
     Tool names, parameter names, source ids, knowledge-base names, notebook
     ids, and skill names must be copied verbatim from the prompt blocks or
@@ -92,6 +103,13 @@ loop:
   continue_truncated: |-
     Your previous response stopped at the token limit. Continue from where it ended
     without repeating it, and complete the user-facing answer.
+  continue_truncated_reasoning: |-
+    Your previous round spent its entire output budget on internal reasoning and
+    hit the token limit before writing anything — so there is nothing to continue
+    from, and reasoning it through again will end the same way. Act now instead:
+    make the tool call, or write the answer with the judgement you already have.
+    Good enough is required; optimal is not. Do not redesign or second-guess what
+    you had already settled on.
   finish_empty_nudge: |-
     Your previous round produced only internal reasoning — no tool call and
     no user-facing answer. Continue now: either call the tools to execute
@@ -122,6 +140,7 @@ notices:
   provider_stream_interrupted: "The model provider interrupted this response. Please retry."
   context_window_guard: "Trimmed older tool results to keep this turn within the model's context window."
   tool_schema_fallback: "Provider rejected native tool schemas; retrying without tools."
+  ask_questions_fallback_prompt: "What is the most important goal or constraint I should account for?"
   image_fallback: "Model does not support image input; retrying without images."
   empty_final_response: "I could not produce a useful response from the model output. Please try again or narrow the request."
   empty_finish_nudged: "The round produced only internal reasoning; asked the model to continue."

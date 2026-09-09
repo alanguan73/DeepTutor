@@ -21,40 +21,37 @@ export default defineConfig({
     {
       name: "ui-audit",
       testMatch: "**/*.audit.ts",
+      testIgnore: [
+        "**/epub-reader.audit.ts",
+        "**/e2e/turn-lifecycle.audit.ts",
+        "**/e2e/multi-worker-turns.audit.ts",
+      ],
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      name: "counsel-smoke",
-      testMatch: "**/counsel.smoke.ts",
+      name: "critical-turns",
+      testMatch: "**/e2e/turn-lifecycle.audit.ts",
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      name: "companion-smoke",
-      testMatch: "**/companion.smoke.ts",
+      name: "multi-worker-turns-desktop",
+      testMatch: "**/e2e/multi-worker-turns.audit.ts",
+      use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
+    },
+    {
+      name: "multi-worker-turns-mobile",
+      testMatch: "**/e2e/multi-worker-turns.audit.ts",
+      use: { ...devices["iPhone 13"], reducedMotion: "reduce" },
+    },
+    {
+      name: "epub-reader-chromium",
+      testMatch: "**/epub-reader.audit.ts",
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      name: "companion-voice-smoke",
-      testMatch: "**/companion.voice.smoke.ts",
-      use: {
-        ...devices["Desktop Chrome"],
-        permissions: ["microphone"],
-      },
-    },
-    {
-      name: "intake-smoke",
-      testMatch: "**/intake.smoke.ts",
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "psych-smoke",
-      testMatch: "**/psych.smoke.ts",
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "academy-pages-smoke",
-      testMatch: "**/academy-pages.smoke.ts",
-      use: { ...devices["Desktop Chrome"] },
+      name: "epub-reader-webkit",
+      testMatch: "**/epub-reader.audit.ts",
+      use: { ...devices["iPhone 13"] },
     },
   ],
 });

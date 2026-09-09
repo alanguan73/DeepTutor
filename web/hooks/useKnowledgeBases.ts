@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   connectImaKnowledgeBase as connectImaApi,
-  connectLightRagServer as connectLightRagServerApi,
+  connectWeKnora as connectWeKnoraApi,
   connectLinkedFolder as connectLinkedFolderApi,
+  connectMarginNote4Library as connectMarginNote4Api,
   connectObsidianVault as connectObsidianApi,
   createKnowledgeBase as createKbApi,
   deleteKnowledgeBase as deleteKbApi,
@@ -14,12 +15,15 @@ import {
   listRagProviders,
   reindexKnowledgeBase as reindexKbApi,
   retryKnowledgeBase as retryKbApi,
+  updatePendingIndexingPolicy as updatePendingIndexingPolicyApi,
   setDefaultKnowledgeBase as setDefaultKbApi,
-  uploadKnowledgeBaseFiles as uploadKbApi,
   type KnowledgeTaskResponse,
+  type IndexingLLMSelection,
   type KnowledgeUploadPolicy,
   type RagProviderSummary,
-} from "@/lib/knowledge-api";
+} from "@/features/knowledge/api/catalog";
+import { connectLightRagServer as connectLightRagServerApi } from "@/features/knowledge/api/engines";
+import { uploadKnowledgeBaseFiles as uploadKbApi } from "@/features/knowledge/api/files";
 import {
   DEFAULT_UPLOAD_POLICY,
   type KnowledgeBase,
@@ -176,6 +180,9 @@ export function useKnowledgeBases() {
       name: string;
       provider: string;
       files: File[];
+      pageindexMode?: "flash" | "standard";
+      searchMode?: string;
+      indexingLLM?: IndexingLLMSelection;
     }): Promise<KnowledgeTaskResponse> => {
       const result = await createKbApi(params);
       invalidateKnowledgeCaches();
@@ -198,8 +205,6 @@ export function useKnowledgeBases() {
             progress_percent: 0,
           },
         });
-      } else {
-        progress.subscribeWs(params.name);
       }
       await load({ force: true, showSpinner: false });
       return result;
@@ -212,8 +217,9 @@ export function useKnowledgeBases() {
       kbName: string,
       files: File[],
       provider?: string,
+      destSubdir?: string,
     ): Promise<KnowledgeTaskResponse> => {
-      const result = await uploadKbApi(kbName, files, { provider });
+      const result = await uploadKbApi(kbName, files, { provider, destSubdir });
       invalidateKnowledgeCaches();
       const fileCount = files.length;
       if (result.task_id) {
@@ -252,8 +258,11 @@ export function useKnowledgeBases() {
   );
 
   const reindex = useCallback(
-    async (kbName: string): Promise<KnowledgeTaskResponse> => {
-      const result = await reindexKbApi(kbName);
+    async (
+      kbName: string,
+      indexingLLM?: IndexingLLMSelection,
+    ): Promise<KnowledgeTaskResponse> => {
+      const result = await reindexKbApi(kbName, indexingLLM);
       if (result.noop) {
         await load({ force: true, showSpinner: false });
         return result;
@@ -274,6 +283,14 @@ export function useKnowledgeBases() {
       return result;
     },
     [load, progress],
+  );
+
+  const updatePendingIndexingPolicy = useCallback(
+    async (kbName: string, indexingLLM: IndexingLLMSelection) => {
+      await updatePendingIndexingPolicyApi(kbName, indexingLLM);
+      await load({ force: true, showSpinner: false });
+    },
+    [load],
   );
 
   const retry = useCallback(
@@ -341,6 +358,29 @@ export function useKnowledgeBases() {
     [load],
   );
 
+  const connectMarginNote4 = useCallback(
+    async (params: { name: string }) => {
+      await connectMarginNote4Api(params);
+      invalidateKnowledgeCaches();
+      await load({ force: true, showSpinner: false });
+    },
+    [load],
+  );
+
+  const connectWeKnora = useCallback(
+    async (params: {
+      name: string;
+      serverUrl: string;
+      apiKey: string;
+      knowledgeBaseId: string;
+    }) => {
+      await connectWeKnoraApi(params);
+      invalidateKnowledgeCaches();
+      await load({ force: true, showSpinner: false });
+    },
+    [load],
+  );
+
   const connectIma = useCallback(
     async (params: {
       name: string;
@@ -373,11 +413,14 @@ export function useKnowledgeBases() {
     uploadFiles,
     setDefault,
     reindex,
+    updatePendingIndexingPolicy,
     retry,
     deleteKb,
     connectObsidian,
     connectLinkedFolder,
     connectLightRagServer,
+    connectWeKnora,
+    connectMarginNote4,
     connectIma,
   };
 }

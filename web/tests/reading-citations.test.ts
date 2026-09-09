@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LOCATOR_HREF_PREFIX,
+  citationTargetFromHref,
   codeRanges,
   findLocatorCitations,
   linkifyLocatorCitations,
   locatorFromHref,
   locatorLabel,
+  verifiedReadingLocators,
 } from "../lib/reading-citations";
 
 test("parses a single locator citation", () => {
@@ -35,7 +37,14 @@ test("bounds an absurd range instead of expanding it", () => {
 });
 
 test("ignores brackets that are not locator citations", () => {
-  for (const input of ["[12]", "[page 12]", "[p.]", "[p.abc]", "[web-1]", "[0]"]) {
+  for (const input of [
+    "[12]",
+    "[page 12]",
+    "[p.]",
+    "[p.abc]",
+    "[web-1]",
+    "[0]",
+  ]) {
     assert.deepEqual(findLocatorCitations(input), [], input);
   }
 });
@@ -51,16 +60,30 @@ test("does not touch citations inside inline code", () => {
 });
 
 test("does not touch citations inside fenced code blocks", () => {
-  const text = ["Look at this:", "", "```python", "x = data[p.12]", "```", "", "Then [p.3]."].join(
-    "\n",
-  );
+  const text = [
+    "Look at this:",
+    "",
+    "```python",
+    "x = data[p.12]",
+    "```",
+    "",
+    "Then [p.3].",
+  ].join("\n");
   const found = findLocatorCitations(text);
   assert.equal(found.length, 1);
   assert.deepEqual(found[0].locators, [3]);
 });
 
 test("handles tilde fences and multiple fences", () => {
-  const text = ["~~~", "a[p.1]", "~~~", "prose [p.2]", "```", "b[p.3]", "```"].join("\n");
+  const text = [
+    "~~~",
+    "a[p.1]",
+    "~~~",
+    "prose [p.2]",
+    "```",
+    "b[p.3]",
+    "```",
+  ].join("\n");
   const found = findLocatorCitations(text);
   assert.deepEqual(
     found.map((c) => c.locators),
@@ -91,6 +114,33 @@ test("linkify rewrites to an anchor the reader can intercept", () => {
   assert.equal(
     linkifyLocatorCitations("Grounded [p.12] claim."),
     `Grounded [p.12](${LOCATOR_HREF_PREFIX}12) claim.`,
+  );
+});
+
+test("linkify binds a citation to its turn material", () => {
+  assert.equal(
+    linkifyLocatorCitations("Grounded [p.12] claim.", {
+      materialId: "0123456789abcdef",
+      allowedLocators: [12],
+    }),
+    "Grounded [p.12](#dt-material-0123456789abcdef-locator-12) claim.",
+  );
+});
+
+test("unsupported citations remain plain text instead of blind links", () => {
+  assert.equal(
+    linkifyLocatorCitations("Grounded [p.12], guessed [p.13].", {
+      materialId: "0123456789abcdef",
+      allowedLocators: [12],
+    }),
+    "Grounded [p.12](#dt-material-0123456789abcdef-locator-12), guessed [p.13].",
+  );
+  assert.equal(
+    linkifyLocatorCitations("Mixed [p.12,13].", {
+      materialId: "0123456789abcdef",
+      allowedLocators: [12],
+    }),
+    "Mixed [p.12,13].",
   );
 });
 
@@ -138,6 +188,109 @@ test("locatorFromHref only accepts the reader's own anchors", () => {
   assert.equal(locatorFromHref(`${LOCATOR_HREF_PREFIX}abc`), null);
   assert.equal(locatorFromHref(null), null);
   assert.equal(locatorFromHref(undefined), null);
+});
+
+test("citationTargetFromHref restores material-aware and legacy targets", () => {
+  assert.deepEqual(
+    citationTargetFromHref(
+      "#dt-material-0123456789ABCDEF-revision-4-locator-12",
+    ),
+    {
+      materialId: "0123456789abcdef",
+      materialRevision: 4,
+      locator: 12,
+    },
+  );
+  assert.deepEqual(
+    citationTargetFromHref("#dt-material-0123456789ABCDEF-locator-12"),
+    { materialId: "0123456789abcdef", locator: 12 },
+  );
+  assert.deepEqual(citationTargetFromHref(`${LOCATOR_HREF_PREFIX}3`), {
+    locator: 3,
+  });
+  assert.equal(
+    citationTargetFromHref("#dt-material-not-an-id-locator-3"),
+    null,
+  );
+  assert.equal(
+    citationTargetFromHref(
+      "#dt-material-0123456789abcdef-revision-0-locator-3",
+    ),
+    null,
+  );
+});
+
+test("linkify binds material-aware citations to an immutable revision", () => {
+  assert.equal(
+    linkifyLocatorCitations("Grounded [p.12].", {
+      materialId: "0123456789abcdef",
+      materialRevision: 4,
+      allowedLocators: [12],
+    }),
+    "Grounded [p.12](#dt-material-0123456789abcdef-revision-4-locator-12).",
+  );
+});
+
+test("verifiedReadingLocators uses only matching reading-tool evidence", () => {
+  const materialId = "0123456789abcdef";
+  const events = [
+    {
+      type: "tool_result",
+      metadata: {
+        tool: "search_material",
+        tool_metadata: {
+          material_id: materialId,
+          material_revision: 4,
+          hits: [{ locator: 12 }, { locator: 17 }],
+        },
+      },
+    },
+    {
+      type: "tool_result",
+      metadata: {
+        tool: "read_material",
+        tool_metadata: {
+          material_id: materialId,
+          material_revision: 4,
+          locators: [12, 13],
+        },
+      },
+    },
+    {
+      type: "tool_result",
+      metadata: {
+        tool: "reader_goto",
+        tool_metadata: {
+          material_id: materialId,
+          material_revision: 4,
+          locator: 14,
+        },
+      },
+    },
+    {
+      type: "tool_result",
+      metadata: {
+        tool: "read_material",
+        tool_metadata: {
+          material_id: "fedcba9876543210",
+          locators: [99],
+        },
+      },
+    },
+    {
+      type: "tool_result",
+      metadata: {
+        tool: "web_search",
+        tool_metadata: { material_id: materialId, locators: [88] },
+      },
+    },
+  ];
+  assert.deepEqual(
+    [...verifiedReadingLocators(events, materialId, 4)].sort((a, b) => a - b),
+    [12, 13, 14, 17],
+  );
+  assert.deepEqual([...verifiedReadingLocators(events, materialId, 3)], []);
+  assert.deepEqual([...verifiedReadingLocators([], materialId)], []);
 });
 
 test("locatorLabel uses the material's own unit word", () => {
@@ -200,7 +353,9 @@ test("does not absorb a phrase naming a different locator", () => {
 
 test("does not reach across a sentence boundary", () => {
   assert.equal(
-    linkifyLocatorCitations("It is on page 3. A different claim follows [p.3]."),
+    linkifyLocatorCitations(
+      "It is on page 3. A different claim follows [p.3].",
+    ),
     `It is on page 3. A different claim follows [p.3](${LOCATOR_HREF_PREFIX}3).`,
   );
 });
@@ -230,12 +385,16 @@ test("absorption survives several citations in one answer", () => {
 
 test("a marker with no nearby phrase still renders as a marker", () => {
   assert.equal(
-    linkifyLocatorCitations("Order is injected explicitly rather than learned [p.3]."),
+    linkifyLocatorCitations(
+      "Order is injected explicitly rather than learned [p.3].",
+    ),
     `Order is injected explicitly rather than learned [p.3](${LOCATOR_HREF_PREFIX}3).`,
   );
 });
 
 test("absorption is still idempotent", () => {
-  const once = linkifyLocatorCitations("It is on page 3 of the document [p.3].");
+  const once = linkifyLocatorCitations(
+    "It is on page 3 of the document [p.3].",
+  );
   assert.equal(linkifyLocatorCitations(once), once);
 });

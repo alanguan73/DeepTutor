@@ -13,12 +13,13 @@ import logging
 from typing import Any, AsyncIterator
 import uuid
 
+from deeptutor.capabilities.protocol import AGENT_OUTPUT, EVENT_METADATA
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
-from deeptutor.core.stream_bus import StreamBus, register_bus, unregister_bus
 from deeptutor.events.event_bus import Event, EventType, get_event_bus
 from deeptutor.runtime.registry.capability_registry import get_capability_registry
 from deeptutor.runtime.registry.tool_registry import get_tool_registry
+from deeptutor.runtime.stream_bus import StreamBus, register_bus, unregister_bus
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +27,24 @@ logger = logging.getLogger(__name__)
 def completion_event_fields(context: UnifiedContext, cap_name: str) -> tuple[str, dict[str, Any]]:
     """Build CAPABILITY_COMPLETE ``agent_output`` + metadata.
 
-    Capabilities may stash a body on ``context.metadata["agent_output"]``.
-    Remaining metadata is forwarded as-is; ``capability``, ``session_id``,
-    and ``turn_id`` always win so consumers can rely on those keys.
+    Capabilities publish through ``context.capability_output``. The two legacy
+    metadata keys remain readable for one major version.
+    ``capability``, ``session_id`` and ``turn_id`` always win so consumers can
+    rely on those keys.
+
+    Only that explicit sub-dict is forwarded, never ``context.metadata`` whole.
+    Only the explicit output dict is forwarded, never compatibility metadata.
     """
-    meta = dict(context.metadata or {})
-    agent_output = str(meta.get("agent_output") or "")
-    merged = {
-        **meta,
+    meta = context.metadata or {}
+    agent_output = str(context.capability_output.agent_output or meta.get(AGENT_OUTPUT) or "")
+    published = context.capability_output.event_metadata or meta.get(EVENT_METADATA)
+    extras = dict(published) if isinstance(published, dict) else {}
+    return agent_output, {
+        **extras,
         "capability": cap_name,
         "session_id": context.session_id,
         "turn_id": str(meta.get("turn_id") or ""),
     }
-    return agent_output, merged
 
 
 class ChatOrchestrator:
@@ -47,8 +53,8 @@ class ChatOrchestrator:
     the ``StreamBus`` lifecycle, and publishes completion events.
     """
 
-    def __init__(self) -> None:
-        self._cap_registry = get_capability_registry()
+    def __init__(self, capability_registry=None) -> None:  # noqa: ANN001
+        self._cap_registry = capability_registry or get_capability_registry()
         self._tool_registry = get_tool_registry()
 
     async def handle(self, context: UnifiedContext) -> AsyncIterator[StreamEvent]:
@@ -60,6 +66,31 @@ class ChatOrchestrator:
         """
         if not context.session_id:
             context.session_id = str(uuid.uuid4())
+
+        try:
+            from deeptutor.services.rag.pipelines.pageindex import (
+                validate_pageindex_oss_selection,
+            )
+
+            validate_pageindex_oss_selection(context.knowledge_bases)
+        except ValueError as exc:
+            bus = StreamBus()
+            await bus.error(
+                str(exc),
+                source="orchestrator",
+                metadata={"turn_terminal": True, "status": "failed"},
+            )
+            await bus.emit(
+                StreamEvent(
+                    type=StreamEventType.DONE,
+                    source="orchestrator",
+                    metadata={"status": "failed"},
+                )
+            )
+            await bus.close()
+            async for event in bus.subscribe():
+                yield event
+            return
 
         cap_name = context.active_capability or "chat"
         capability = self._cap_registry.get(cap_name)

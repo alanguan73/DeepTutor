@@ -29,12 +29,17 @@ flavours exist today:
   ``lightrag_server``: nothing indexed or stored locally, retrieval offloaded to
   IMA's ``search_knowledge`` OpenAPI by the bound ``ima`` provider, and one IMA
   library = one KB. See ``services/rag/pipelines/ima``.
+* ``weknora`` — a pointer (``server_url`` + ``api_key`` +
+  ``knowledge_base_id``) to a knowledge base the user curates in a
+  self-hosted Tencent WeKnora deployment. Retrieval is offloaded to WeKnora's
+  knowledge-search API by the bound ``weknora`` provider; no documents are
+  copied or indexed locally. See ``services/rag/pipelines/weknora``.
 
 All connected flavours share the same lifecycle quirks: no on-disk folder under
 ``base_dir``, no embedding reconcile, and deletion must never touch the
 external resource. The :func:`is_connected_kb` / :func:`external_root_of` helpers
 let the manager treat them uniformly without sprinkling ``type`` literals
-across the codebase. ``subagent``, ``lightrag_server`` and ``ima`` are connected
+across the codebase. ``subagent``, ``lightrag_server``, ``ima`` and ``weknora`` are connected
 but point at no folder, so :func:`external_root_of` returns ``None`` for them — a
 subagent is driven by its capability and the two server-backed kinds are reached
 over HTTP; none resolves to a local path.
@@ -74,6 +79,17 @@ LIGHTRAG_SERVER_KB_TYPE = "lightrag_server"
 # ``search_knowledge`` OpenAPI by the ``ima`` provider.
 IMA_KB_TYPE = "ima"
 
+# A connected Tencent WeKnora knowledge base. The external service owns both
+# indexing and document management; DeepTutor only stores retrieval credentials.
+WEKNORA_KB_TYPE = "weknora"
+
+# A connected MarginNote 4 library: a pointer (``device_id`` + optional
+# ``server_url``) to the user's MN4 study data synced via the official Add-on
+# API. No path on disk and no local index — MN4 objects land in a dedicated
+# SQLite store and are navigated by the MarginNote capability's own tools.
+# See ``capabilities/marginnote4``.
+MARGINNOTE4_KB_TYPE = "marginnote4"
+
 # Every pointer/connected KB type. Membership here is what makes the manager
 # skip the index pipeline, the orphan prune and the embedding reconcile.
 CONNECTED_KB_TYPES = frozenset(
@@ -83,6 +99,8 @@ CONNECTED_KB_TYPES = frozenset(
         SUBAGENT_KB_TYPE,
         LIGHTRAG_SERVER_KB_TYPE,
         IMA_KB_TYPE,
+        WEKNORA_KB_TYPE,
+        MARGINNOTE4_KB_TYPE,
     }
 )
 
@@ -93,7 +111,7 @@ CONNECTED_KB_TYPES = frozenset(
 # mounts an index built elsewhere, while ``lightrag_server`` and ``ima`` offload
 # retrieval over HTTP — so "connected" must never be used as a synonym for
 # "unsearchable" (it once cost Book generation every one of those sources).
-NON_RETRIEVABLE_KB_TYPES = frozenset({OBSIDIAN_KB_TYPE, SUBAGENT_KB_TYPE})
+NON_RETRIEVABLE_KB_TYPES = frozenset({OBSIDIAN_KB_TYPE, SUBAGENT_KB_TYPE, MARGINNOTE4_KB_TYPE})
 
 
 def is_connected_kb(entry: Any) -> bool:
@@ -141,6 +159,8 @@ __all__ = [
     "SUBAGENT_KB_TYPE",
     "LIGHTRAG_SERVER_KB_TYPE",
     "IMA_KB_TYPE",
+    "WEKNORA_KB_TYPE",
+    "MARGINNOTE4_KB_TYPE",
     "CONNECTED_KB_TYPES",
     "NON_RETRIEVABLE_KB_TYPES",
     "is_connected_kb",

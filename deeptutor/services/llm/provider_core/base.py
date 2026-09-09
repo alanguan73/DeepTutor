@@ -52,6 +52,7 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None
     thinking_blocks: list[dict[str, Any]] | None = None
+    provider_specific_fields: dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_tool_calls(self) -> bool:
@@ -82,6 +83,10 @@ class LLMProvider(ABC):
         "overloaded",
         "timeout",
         "timed out",
+        # An idle stream that never delivered its final message: the wording
+        # ``chat_stream`` uses for its own stall guard, which is as retryable
+        # as the timeouts above and was being classified as permanent.
+        "stalled",
         "connection",
         "server error",
         "temporarily unavailable",

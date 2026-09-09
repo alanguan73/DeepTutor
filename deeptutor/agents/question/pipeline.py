@@ -20,7 +20,7 @@ Phase shape:
 
 The orchestrator owns control flow (per-question iteration, repair pass,
 incremental emission) and prompt assembly; everything else is delegated
-to :mod:`deeptutor.core.agentic` and the shared tool-composition policy.
+to :mod:`deeptutor.runtime.agentic` and the shared tool-composition policy.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 import json
 import logging
+from pathlib import Path
 import re
 from typing import Any
 
@@ -40,8 +41,21 @@ from deeptutor.agents._shared.tool_composition import (
     default_optional_tools,
     user_has_memory,
     user_has_notebooks,
+    user_has_question_bank,
 )
-from deeptutor.core.agentic import (
+from deeptutor.agents._shared.tool_runtime import (
+    bind_workspace_tool_runtime,
+    drop_unconfigured_generation_tools,
+    fallback_task_dir_from_metadata,
+)
+from deeptutor.core.context import Attachment, UnifiedContext
+from deeptutor.core.trace import (
+    build_trace_metadata,
+    derive_trace_metadata,
+    merge_trace_metadata,
+    new_call_id,
+)
+from deeptutor.runtime.agentic import (
     DispatchOutcome,
     LabeledStepResult,
     LabelProtocol,
@@ -54,21 +68,14 @@ from deeptutor.core.agentic import (
     run_agentic_loop,
     run_labeled_step,
 )
-from deeptutor.core.agentic.labels import find_inline_labels
-from deeptutor.core.agentic.tool_dispatch import MAX_PARALLEL_TOOL_CALLS
-from deeptutor.core.agentic.usage import record_streamed_usage
-from deeptutor.core.context import Attachment, UnifiedContext
-from deeptutor.core.stream_bus import StreamBus
-from deeptutor.core.trace import (
-    build_trace_metadata,
-    derive_trace_metadata,
-    merge_trace_metadata,
-    new_call_id,
-)
+from deeptutor.runtime.agentic.labels import find_inline_labels
+from deeptutor.runtime.agentic.messages import assistant_message
+from deeptutor.runtime.agentic.tool_dispatch import MAX_PARALLEL_TOOL_CALLS
+from deeptutor.runtime.agentic.usage import record_streamed_usage
 from deeptutor.runtime.registry.tool_registry import get_tool_registry
+from deeptutor.runtime.stream_bus import StreamBus
 from deeptutor.services.config import parse_language
 from deeptutor.services.llm import get_llm_config, prepare_multimodal_messages
-from deeptutor.services.path_service import get_path_service
 from deeptutor.services.prompt import get_prompt_manager
 from deeptutor.services.prompt.language import append_language_directive
 from deeptutor.services.sandbox import exec_capability_available
@@ -412,6 +419,8 @@ class QuestionPipeline:
             api_version=getattr(self.llm_config, "api_version", None),
             extra_headers=getattr(self.llm_config, "extra_headers", None) or None,
             reasoning_effort=self.reasoning_effort,
+            wire_api=getattr(self.llm_config, "wire_api", None) or "auto",
+            api_format=getattr(self.llm_config, "api_format", None) or "auto",
         )
 
         self.registry = get_tool_registry()
@@ -472,6 +481,7 @@ class QuestionPipeline:
         client = build_openai_client(self.client_config)
 
         try:
+            await self._prepare_pageindex_tools()
             return await self._run_inner(
                 context=context,
                 user_message=user_message,
@@ -636,6 +646,11 @@ class QuestionPipeline:
             tool_list=self._tool_list_text(context),
             num_questions=num_questions,
         )
+        from deeptutor.agents._shared.workspace_prompt import workspace_system_note
+
+        workspace_note = workspace_system_note(context, language=self.language)
+        if workspace_note:
+            system_prompt = f"{system_prompt}\n\n{workspace_note}"
         system_prompt = append_language_directive(system_prompt, self.language)
         user_prompt = self._t(
             "explore.user_template",
@@ -1470,29 +1485,54 @@ class QuestionPipeline:
                 step.text, allowed_labels=_PROTOCOL_EXPLORE.allowed
             ):
                 return step.text, True, calls
-            messages.append({"role": "assistant", "content": step.text[:500]})
+            messages.append(
+                assistant_message(
+                    step.text[:500],
+                    reasoning_content=step.reasoning_content or None,
+                    thinking_blocks=list(step.thinking_blocks) or None,
+                )
+            )
             messages.append({"role": "user", "content": self._t("protocol.force_finish_repair")})
         return self._t("protocol.fallback_final"), False, calls
 
     # ------------------------------------------------------------------
     # Tool integration (mirrors chat's policy)
     # ------------------------------------------------------------------
+    async def _prepare_pageindex_tools(self) -> None:
+        from deeptutor.services.rag.pipelines.pageindex.tools import (
+            build_pageindex_tool_context,
+        )
+
+        self._pageindex_tool_context = await build_pageindex_tool_context(
+            self.kb_name,
+            base_registry=self.registry,
+        )
+        if self._pageindex_tool_context is not None:
+            self.registry = self._pageindex_tool_context.registry
+
+    def _pageindex_tool_names(self) -> list[str]:
+        tool_context = getattr(self, "_pageindex_tool_context", None)
+        return [tool.name for tool in tool_context.tools] if tool_context is not None else []
+
     def _mount_flags(self, context: UnifiedContext) -> ToolMountFlags:
         return ToolMountFlags(
-            has_kb=bool(self.kb_name),
+            has_kb=bool(self.kb_name and not getattr(self, "_pageindex_tool_context", None)),
             has_sources=bool(self._source_index(context)),
             has_memory=user_has_memory(),
             has_notebooks=user_has_notebooks(),
-            has_code=exec_capability_available(),
+            has_question_bank=user_has_question_bank(),
+            has_exec=exec_capability_available(),
         )
 
     def _resolved_tools(self, context: UnifiedContext) -> list[str]:
-        return compose_enabled_tools(
+        names = compose_enabled_tools(
             registry=self.registry,
             requested_tools=self.enabled_tools,
             optional_whitelist=self._optional_tools,
             mount_flags=self._mount_flags(context),
         )
+        resolved = list(dict.fromkeys([*names, *self._pageindex_tool_names()]))
+        return drop_unconfigured_generation_tools(resolved)
 
     def _use_native_tools(self, context: UnifiedContext) -> bool:
         """Native tool calling is only worth enabling when (a) the binding /
@@ -1536,25 +1576,22 @@ class QuestionPipeline:
         args: dict[str, Any],
         context: UnifiedContext,
     ) -> dict[str, Any]:
-        kwargs = dict(args)
-        turn_id = str(context.metadata.get("turn_id", "") or "").strip()
-        task_dir = None
-        if turn_id:
-            task_dir = get_path_service().get_task_workspace(FEATURE, turn_id)
+        workspace = context.runtime.workspace
+        task_dir = (
+            Path(workspace.output_dir)
+            if workspace is not None
+            else fallback_task_dir_from_metadata(context, feature=FEATURE)
+        )
+        kwargs = bind_workspace_tool_runtime(
+            tool_name,
+            args,
+            context,
+            fallback_task_dir=task_dir,
+        )
         if tool_name == "rag":
             kwargs.setdefault("mode", "hybrid")
             if self.kb_name:
                 kwargs.setdefault("kb_name", self.kb_name)
-        elif tool_name == "code_execution":
-            from deeptutor.services.sandbox import Mount
-
-            if task_dir is not None:
-                code_dir = task_dir / "code_runs"
-                code_dir.mkdir(parents=True, exist_ok=True)
-                kwargs["_sandbox_workdir"] = str(code_dir)
-                kwargs["_sandbox_mounts"] = (
-                    Mount(host_path=str(code_dir), sandbox_path=str(code_dir), read_only=False),
-                )
         elif tool_name in {"reason", "brainstorm"}:
             kwargs.setdefault("context", context.user_message)
         elif tool_name == "web_search":
@@ -1609,6 +1646,28 @@ class QuestionPipeline:
     def _kb_system_note(self) -> str:
         if not self.kb_name:
             return ""
+        tool_context = getattr(self, "_pageindex_tool_context", None)
+        if tool_context is not None:
+            docs = (
+                "; ".join(
+                    f"{name} (doc_id: {doc_id})"
+                    for name, doc_id in sorted(tool_context.documents.items())
+                )
+                or "(no indexed documents)"
+            )
+            tools = ", ".join(self._pageindex_tool_names())
+            instructions = tool_context.instructions.strip()
+            if self.language == "zh":
+                return (
+                    f"已挂载 PageIndex 知识库 {self.kb_name!r}。使用这些工具在当前推理循环中"
+                    f"阅读文档，不要调用 rag：{tools}。文档：{docs}。"
+                    + (f"\nPageIndex SDK 阅读说明：\n{instructions}" if instructions else "")
+                )
+            return (
+                f"Attached PageIndex knowledge base: {self.kb_name!r}. Read it inside this "
+                f"reasoning loop with these tools; do not call rag: {tools}. Documents: {docs}."
+                + (f"\nPageIndex SDK reading instructions:\n{instructions}" if instructions else "")
+            )
         if self.language == "zh":
             return f"用户已挂载知识库：{self.kb_name}。调用 rag 时，kb_name 必须填这个名称。"
         return (
@@ -1919,7 +1978,7 @@ class _BaseLoopHost:
                 requested=len(tool_calls),
                 limit=MAX_PARALLEL_TOOL_CALLS,
             )
-        return await dispatch_tool_calls(
+        outcome = await dispatch_tool_calls(
             tool_calls=tool_calls,
             context=self._context,
             stream=self._stream,
@@ -1945,6 +2004,12 @@ class _BaseLoopHost:
             ),
             trace_id_prefix=self._trace_id_prefix,
         )
+        pageindex_sources = [
+            source for source in outcome.sources if source.get("type") == "pageindex"
+        ]
+        if pageindex_sources:
+            await self._stream.sources(pageindex_sources, source=SOURCE, stage=self._stage)
+        return outcome
 
     async def resolve_pause(self, dispatch: DispatchOutcome) -> bool:
         # ``ask_user`` would pause the turn — quiz pipeline v1 doesn't wire up

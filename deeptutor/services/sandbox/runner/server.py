@@ -48,14 +48,11 @@ Argv note:
   rolling deploy either image may be the one serving the request.
 
 Mounts note:
-  This server does **not** perform any mounting. The runner container shares
-  the task-workspace subtrees with the main app at the *same* paths
-  (``/app/data/user/workspace`` for the admin scope, ``/app/data/users`` for
-  per-user scopes — via docker-compose). So when ``host_path == sandbox_path``
-  the directory is already visible here and no action is needed. We only
-  read/record the ``mounts`` field; what is visible is decided by the compose
-  volume layout, and ``workdir`` is validated against the same roots
-  (``DEEPTUTOR_RUNNER_ALLOWED_WORKDIRS``) as defence in depth.
+  This server does **not** perform any mounting. Compose maps the selected
+  content workspace to ``/workspace`` in both services, read-only here except
+  for the nested ``/workspace/outputs`` bind. We only validate the request's
+  ``mounts`` shape; ``workdir`` must also remain below the configured writable
+  root (``DEEPTUTOR_RUNNER_ALLOWED_WORKDIRS``).
 """
 
 from __future__ import annotations
@@ -63,11 +60,15 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-import resource
 import subprocess
 import sys
 import traceback
 from typing import Any
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - non-POSIX platforms (e.g. Windows)
+    resource = None  # type: ignore[assignment]
 
 # Port to listen on inside the container; overridable for local testing.
 DEFAULT_PORT = 8900
@@ -128,35 +129,36 @@ def _build_preexec_fn(memory_mb: int, cpu_seconds: int):
 
     def _apply() -> None:
         # Address space (bytes). Cap virtual memory as a secondary guard.
-        if memory_mb > 0:
+        if memory_mb > 0 and resource is not None:
             mem_bytes = memory_mb * 1024 * 1024
             try:
-                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))  # type: ignore[attr-defined]
             except (ValueError, OSError):
                 pass
         # CPU time (seconds). SIGXCPU/SIGKILL the child if it burns this much CPU.
-        if cpu_seconds > 0:
+        if cpu_seconds > 0 and resource is not None:
             try:
-                resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))  # type: ignore[attr-defined]
             except (ValueError, OSError):
                 pass
         # Open file descriptors.
-        try:
-            resource.setrlimit(resource.RLIMIT_NOFILE, (_RLIMIT_NOFILE, _RLIMIT_NOFILE))
-        except (ValueError, OSError):
-            pass
+        if resource is not None:
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (_RLIMIT_NOFILE, _RLIMIT_NOFILE))  # type: ignore[attr-defined]
+            except (ValueError, OSError):
+                pass
 
     return _apply
 
 
-# Workdirs must stay inside the shared workspace volumes (defence in depth:
-# the app only ever sends task-workspace paths; a request outside them means
-# a bug or a forged request). Colon-separated, overridable per deployment.
+# Workdirs must stay inside the workspace's writable outputs tree (defence in
+# depth: the app only sends turn-output paths; anything else means a bug or a
+# forged request). Colon-separated, overridable per deployment.
 _ALLOWED_WORKDIR_ROOTS = [
     root
     for root in os.environ.get(
         "DEEPTUTOR_RUNNER_ALLOWED_WORKDIRS",
-        "/app/data/user/workspace:/app/data/users",
+        "/workspace/outputs",
     ).split(":")
     if root
 ]

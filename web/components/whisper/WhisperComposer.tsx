@@ -2,6 +2,7 @@
 
 import type { KeyboardEvent } from "react";
 import { Loader2, Send } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { shouldSubmitOnEnter } from "@/lib/composer-keyboard";
 import { useImeComposing } from "@/lib/use-ime-composing";
 import type { WhisperSeat } from "@/lib/whisper-transcript";
@@ -33,6 +34,7 @@ export default function WhisperComposer({
   onSend,
   onEnd,
 }: WhisperComposerProps) {
+  const { t } = useTranslation();
   const { isComposingRef, onCompositionStart, onCompositionEnd } =
     useImeComposing();
 
@@ -56,29 +58,33 @@ export default function WhisperComposer({
             rows={2}
             placeholder={
               seat === "visitor"
-                ? "Message as visitor…"
-                : "Counselor line as trainee…"
+                ? t("Message as visitor…")
+                : t("Counselor line as trainee…")
             }
             className="min-h-[2.75rem] flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--background)] px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-            aria-label={seat === "visitor" ? "Visitor message" : "Trainee message"}
+            aria-label={
+              seat === "visitor" ? t("Visitor message") : t("Trainee message")
+            }
           />
           <button
             type="button"
             onClick={onSend}
             disabled={sendDisabled || !draft.trim()}
             className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-foreground)] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="Send"
+            aria-label={t("Send")}
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
             )}
-            Send
+            {t("Send")}
           </button>
         </div>
         {busy && (
-          <p className="text-[11px] text-[var(--muted-foreground)]">Waiting…</p>
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            {t("Waiting…")}
+          </p>
         )}
         {showEndButton && (
           <div className="flex justify-end">
@@ -88,7 +94,7 @@ export default function WhisperComposer({
               disabled={endDisabled}
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--ring)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              结束
+              {t("End session")}
             </button>
           </div>
         )}

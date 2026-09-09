@@ -2,12 +2,65 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  getFileExtension,
+  isMarginNoteKb,
   kbCanReindex,
+  kbDetailSections,
+  kbProvider,
+  providerUsesEmbeddingMetadata,
   resolveKnowledgeIndexFailure,
   taskFailureMessage,
+  uploadPolicyForProvider,
+  validateFiles,
   providerConnectionStatus,
   type KnowledgeBase,
 } from "../lib/knowledge-helpers";
+
+test("knowledge upload extension matching supports compound Docling suffixes", () => {
+  const allowed = [".gz", ".tar.gz", ".xml", ".dclg.xml"];
+  assert.equal(getFileExtension("BOOK.TAR.GZ", allowed), ".tar.gz");
+  assert.equal(getFileExtension("document.DCLG.XML", allowed), ".dclg.xml");
+  assert.equal(getFileExtension("plain.XML", allowed), ".xml");
+});
+
+test("PageIndex providers do not expose embedding metadata", () => {
+  assert.equal(providerUsesEmbeddingMetadata("pageindex"), false);
+  assert.equal(providerUsesEmbeddingMetadata("pageindex-oss"), false);
+  assert.equal(providerUsesEmbeddingMetadata("llamaindex"), true);
+  assert.equal(providerUsesEmbeddingMetadata("graphrag"), true);
+});
+
+test("PageIndex OSS upload policy accepts PDF only", () => {
+  const base = {
+    extensions: [".pdf", ".pptx", ".txt"],
+    accept: ".pdf,.pptx,.txt",
+    max_file_size_bytes: 100,
+  };
+  assert.deepEqual(uploadPolicyForProvider(base, "pageindex-oss"), {
+    extensions: [".pdf"],
+    accept: ".pdf",
+    max_file_size_bytes: 100,
+    allow_any_extension: false,
+  });
+  assert.equal(uploadPolicyForProvider(base, "llamaindex"), base);
+});
+
+test("unbounded parser policy delegates unknown extensions", () => {
+  const custom = new File(["payload"], "document.vendor-format");
+  const result = validateFiles(
+    [custom],
+    {
+      extensions: [],
+      accept: "",
+      max_file_size_bytes: 100,
+      allow_any_extension: true,
+    },
+    ((key: string) => key) as never,
+  );
+
+  assert.deepEqual(result.validFiles, [custom]);
+  assert.equal(result.invalidFiles.length, 0);
+});
 
 function kb(overrides: Partial<KnowledgeBase>): KnowledgeBase {
   return {
@@ -75,7 +128,7 @@ test("resolveKnowledgeIndexFailure preserves actionable backend metadata", () =>
       message: "Choose a chat model that supports structured output.",
       retryable: false,
       requiresModelChange: true,
-      settingsHref: "/settings/models",
+      settingsHref: "/settings#models",
     },
   );
 });
@@ -103,7 +156,7 @@ test("resolveKnowledgeIndexFailure distinguishes configuration from transient fa
   );
 
   assert.equal(authentication?.requiresModelChange, true);
-  assert.equal(authentication?.settingsHref, "/settings/models");
+  assert.equal(authentication?.settingsHref, "/settings#models");
   assert.equal(rateLimit?.requiresModelChange, false);
   assert.equal(rateLimit?.settingsHref, undefined);
   assert.equal(rateLimit?.retryable, true);
@@ -122,7 +175,7 @@ test("resolveKnowledgeIndexFailure routes embedding configuration failures to em
   );
 
   assert.equal(endpointFailure?.requiresModelChange, true);
-  assert.equal(endpointFailure?.settingsHref, "/settings/embedding");
+  assert.equal(endpointFailure?.settingsHref, "/settings#embedding");
 });
 
 test("taskFailureMessage keeps trace details out of the primary error", () => {
@@ -169,4 +222,41 @@ test("engine status follows the credential and install state", () => {
     providerConnectionStatus({ id: "graphrag", configured: false }),
     "unavailable",
   );
+  assert.equal(
+    providerConnectionStatus({
+      id: "lightrag-server",
+      configured: true,
+      setup_required: true,
+    }),
+    "needs_setup",
+  );
+});
+
+test("a MarginNote library shows devices instead of files and index versions", () => {
+  // It owns no raw documents and builds no index, so those three sections
+  // would render empty against it; what it does have is the devices that
+  // push objects into it.
+  const marginNote: KnowledgeBase = {
+    name: "MN4",
+    metadata: { type: "marginnote4", db_path: "/data/mn4/MN4.db" },
+  };
+  assert.deepEqual(kbDetailSections(marginNote), ["devices", "settings"]);
+  assert.equal(isMarginNoteKb(marginNote), true);
+  assert.equal(kbProvider(marginNote), "marginnote4");
+});
+
+test("an ordinary knowledge base has no devices section", () => {
+  const indexed: KnowledgeBase = {
+    name: "Papers",
+    statistics: { rag_provider: "llamaindex" },
+  };
+  assert.deepEqual(kbDetailSections(indexed), [
+    "files",
+    "add",
+    "github",
+    "web",
+    "versions",
+    "settings",
+  ]);
+  assert.equal(isMarginNoteKb(indexed), false);
 });

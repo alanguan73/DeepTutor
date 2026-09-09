@@ -18,9 +18,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib
+import json
 import logging
 import os
 import shutil
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,19 @@ async def _terminate(process: asyncio.subprocess.Process) -> None:
         await process.wait()
 
 
+def not_found_detail(probe_text: str, fallback: str) -> str:
+    """What to show a reader when a CLI probe failed.
+
+    :func:`probe_version` reports a bare ``"not installed"`` for a missing
+    binary, which repeats what the status chip already says and crowds out the
+    backend's own guidance — every caller writing ``version or "<cli> not found
+    on PATH"`` was in fact unreachable for the common case. Real probe output (a
+    version banner, a permission error) is more informative and still wins.
+    """
+    text = (probe_text or "").strip()
+    return fallback if text in ("", "not installed") else text
+
+
 async def probe_version(cmd: Sequence[str], *, timeout: float = 8.0) -> tuple[bool, str]:
     """Run a fast ``--version``-style probe; return ``(ok, stdout-or-error)``.
 
@@ -165,4 +180,35 @@ async def probe_version(cmd: Sequence[str], *, timeout: float = 8.0) -> tuple[bo
     return process.returncode == 0, text
 
 
-__all__ = ["ProcessLine", "resolve_cli_command", "stream_process_lines", "probe_version"]
+#: How much of one event field reaches the trace. Four CLI backends render
+#: the same kind of line, so they bound it the same way.
+MAX_FIELD_CHARS = 4000
+
+
+def truncate_field(text: str) -> str:
+    """Trim one trace field to :data:`MAX_FIELD_CHARS`, marking the cut."""
+    text = text.strip()
+    if len(text) > MAX_FIELD_CHARS:
+        return text[:MAX_FIELD_CHARS].rstrip() + " …"
+    return text
+
+
+def compact_field(obj: Any) -> str:
+    """Render an arbitrary event value as one bounded, single-line string."""
+    try:
+        text = json.dumps(obj, ensure_ascii=False)
+    except (TypeError, ValueError):
+        text = str(obj)
+    return truncate_field(text)
+
+
+__all__ = [
+    "MAX_FIELD_CHARS",
+    "ProcessLine",
+    "compact_field",
+    "not_found_detail",
+    "probe_version",
+    "truncate_field",
+    "resolve_cli_command",
+    "stream_process_lines",
+]
